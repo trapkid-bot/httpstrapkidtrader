@@ -5,6 +5,12 @@
  * No Deriv credentials are ever sent through this channel.
  */
 
+declare global {
+    interface Window {
+        __TRAPKID_ANALYZER_WS_URL__?: string;
+    }
+}
+
 const DEFAULT_URL =
     'wss://coverage-max-surrounding-continues.trycloudflare.com/ws/ticks';
 
