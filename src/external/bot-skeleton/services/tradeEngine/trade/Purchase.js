@@ -11,6 +11,8 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
+            const effectiveContractType = this.analyzerSignal ? 'DIGITMATCH' : contract_type;
+
             // Prevent calling purchase twice
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
@@ -43,13 +45,13 @@ export default Engine =>
                     accountID: this.accountInfo.loginid,
                     totalRuns: this.updateAndReturnTotalRuns(),
                     transaction_ids: { buy: buy.transaction_id },
-                    contract_type,
+                    contract_type: effectiveContractType,
                     buy_price: buy.buy_price,
                 });
             };
 
             if (this.is_proposal_subscription_required) {
-                const { id, askPrice } = this.selectProposal(contract_type);
+                const { id, askPrice } = this.selectProposal(effectiveContractType);
 
                 const action = () => api_base.api.send({ buy: id, price: askPrice });
 
@@ -86,7 +88,7 @@ export default Engine =>
                     delayIndex++
                 ).then(onSuccess);
             }
-            const trade_option = tradeOptionToBuy(contract_type, this.tradeOptions);
+            const trade_option = tradeOptionToBuy(effectiveContractType, this.tradeOptions);
             const action = () => api_base.api.send(trade_option);
 
             this.isSold = false;
