@@ -96,6 +96,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         globalObserver.emit('bot.running');
 
+        this.analyzerSignal = null;
+        this.analyzerEntryEpoch = 0;
+        this.analyzerExitTriggered = false;
+
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
 
