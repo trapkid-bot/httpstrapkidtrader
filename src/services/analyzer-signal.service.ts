@@ -12,7 +12,7 @@ declare global {
 }
 
 const DEFAULT_URL =
-    'wss://coverage-max-surrounding-continues.trycloudflare.com/ws/ticks';
+    'wss://shipping-cos-zum-horse.trycloudflare.com/ws/ticks';
 
 const getUrl = () => {
     if (typeof window !== 'undefined') {
