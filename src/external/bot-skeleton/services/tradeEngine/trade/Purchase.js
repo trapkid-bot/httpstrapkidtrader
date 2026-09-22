@@ -27,6 +27,10 @@ export default Engine =>
                 });
 
                 this.contractId = buy.contract_id;
+                if (this.analyzerSignal) {
+                    this.analyzerEntryEpoch = Math.floor(Date.now() / 1000);
+                    this.analyzerExitTriggered = false;
+                }
                 this.store.dispatch(purchaseSuccessful());
 
                 if (this.is_proposal_subscription_required) {
