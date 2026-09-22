@@ -15,8 +15,10 @@ const DEFAULT_URL =
     'wss://coverage-max-surrounding-continues.trycloudflare.com/ws/ticks';
 
 const getUrl = () => {
-    if (typeof window !== 'undefined' && window.__TRAPKID_ANALYZER_WS_URL__) {
-        return window.__TRAPKID_ANALYZER_WS_URL__;
+    if (typeof window !== 'undefined') {
+        const configured = window.__TRAPKID_ANALYZER_WS_URL__;
+        const stored = window.localStorage?.getItem('TRAPKID_ANALYZER_WS_URL');
+        return configured || stored || DEFAULT_URL;
     }
     return DEFAULT_URL;
 };
