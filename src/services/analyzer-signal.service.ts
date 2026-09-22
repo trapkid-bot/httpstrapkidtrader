@@ -78,8 +78,10 @@ class AnalyzerSignalService {
     }
 
     handleMessage(message) {
-        if (message.type === 'SIGNAL_LOCKED' && message.signal) {
-            this.latestSignal = this.normalizeSignal(message.signal);
+        if (message.type === 'SIGNAL_LOCKED') {
+            const signal = message.signal || message.data || message;
+            if (!signal || signal.lockedDigit === undefined) return;
+            this.latestSignal = this.normalizeSignal(signal);
             this.emit({ type: 'SIGNAL_LOCKED', signal: this.latestSignal });
             return;
         }
