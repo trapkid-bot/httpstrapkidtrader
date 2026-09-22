@@ -6,6 +6,7 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
+import { getAnalyzerSignal } from '@/services/analyzer-signal.service';
 import { proposalsReady, start } from './state/actions';
 import * as constants from './state/constants';
 import rootReducer from './state/reducers';
@@ -96,11 +97,31 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         globalObserver.emit('bot.running');
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
+        const analyzerSignal = getAnalyzerSignal();
 
-        this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
+        // If the local TrapKid analyzer has a live 30-second lock, the lock becomes
+        // the source of truth for the next Match contract. Normal DBot strategies
+        // continue unchanged when no valid analyzer signal is present.
+        if (analyzerSignal) {
+            this.analyzerSignal = analyzerSignal;
+            this.tradeOptions = {
+                ...validated_trade_options,
+                contract_type: 'DIGITMATCH',
+                prediction: analyzerSignal.lockedDigit,
+                duration: 10,
+                duration_unit: 't',
+                symbol: analyzerSignal.symbol || this.options.symbol,
+            };
+            globalObserver.emit('ui.log.info', 
+                `TRAPKID ANALYZER: locked digit ${analyzerSignal.lockedDigit} | signal ${analyzerSignal.signalId}`
+            );
+        } else {
+            this.analyzerSignal = null;
+            this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
+        }
+
         this.store.dispatch(start());
-        this.checkLimits(validated_trade_options);
-
+        this.checkLimits(this.tradeOptions);
         this.makeDirectPurchaseDecision();
     }
 
