@@ -28,6 +28,34 @@ export default Engine =>
                     }
                     const lastTick = ticks.slice(-1)[0];
                     const { epoch } = lastTick;
+                    this.latestTick = lastTick;
+
+                    // TrapKid analyzer exit: once the locked digit appears after
+                    // entry, close the open Match contract at market price.
+                    if (
+                        this.analyzerSignal &&
+                        !this.analyzerExitTriggered &&
+                        this.tradeOptions?.contract_type === 'DIGITMATCH' &&
+                        this.contractId &&
+                        !this.isSold &&
+                        !this.isExpired &&
+                        Number(epoch) > Number(this.analyzerEntryEpoch || 0) &&
+                        Date.now() < Number(this.analyzerSignal.expiresAt || 0)
+                    ) {
+                        const digit = getLastDigit(lastTick.quote.toFixed(this.getPipSize()));
+                        if (digit === Number(this.analyzerSignal.lockedDigit) && this.isSellAtMarketAvailable()) {
+                            this.analyzerExitTriggered = true;
+                            globalObserver.emit(
+                                'ui.log.info',
+                                `TRAPKID ANALYZER: digit ${digit} appeared — selling Match contract`
+                            );
+                            Promise.resolve(this.sellAtMarket()).catch(error => {
+                                this.analyzerExitTriggered = false;
+                                globalObserver.emit('Error', error);
+                            });
+                        }
+                    }
+
                     this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
                 };
 
