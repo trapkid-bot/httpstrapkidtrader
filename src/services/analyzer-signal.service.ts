@@ -3,9 +3,6 @@
  *
  * Receives a short-lived locked digit from the public analyzer WebSocket.
  * No Deriv credentials are ever sent through this channel.
- *
- * The bridge also renders a small, always-visible connection/signal indicator
- * so the trader can verify the analyzer connection without opening DevTools.
  */
 
 declare global {
@@ -37,13 +34,23 @@ class AnalyzerSignalService {
 
     constructor() {
         if (typeof window !== 'undefined') {
-            this.createIndicator();
+            const mount = () => {
+                this.createIndicator();
+                this.renderIndicator();
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', mount, { once: true });
+            } else {
+                mount();
+            }
+
             this.connect();
         }
     }
 
     createIndicator() {
-        if (typeof document === 'undefined') return;
+        if (typeof document === 'undefined' || !document.body) return;
 
         const existing = document.getElementById('trapkid-analyzer-indicator');
         if (existing) {
@@ -72,11 +79,13 @@ class AnalyzerSignalService {
 
         document.body.appendChild(indicator);
         this.indicator = indicator;
-        this.renderIndicator();
     }
 
     renderIndicator() {
-        if (!this.indicator) return;
+        if (!this.indicator) {
+            this.createIndicator();
+            if (!this.indicator) return;
+        }
 
         const signal = this.latestSignal;
         const remaining = signal?.expiresAt
@@ -197,13 +206,11 @@ class AnalyzerSignalService {
     }
 
     normalizeSignal(signal) {
-        const lockedAt = this.toMs(signal.lockedAt);
-        const expiresAt = this.toMs(signal.expiresAt);
         return {
             ...signal,
             lockedDigit: Number(signal.lockedDigit),
-            lockedAt,
-            expiresAt,
+            lockedAt: this.toMs(signal.lockedAt),
+            expiresAt: this.toMs(signal.expiresAt),
         };
     }
 
@@ -217,11 +224,13 @@ class AnalyzerSignalService {
         if (!this.latestSignal) return null;
         if (!Number.isInteger(this.latestSignal.lockedDigit)) return null;
         if (this.latestSignal.lockedDigit < 0 || this.latestSignal.lockedDigit > 9) return null;
+
         if (!this.latestSignal.expiresAt || Date.now() >= this.latestSignal.expiresAt) {
             this.latestSignal = null;
             this.renderIndicator();
             return null;
         }
+
         return { ...this.latestSignal };
     }
 
