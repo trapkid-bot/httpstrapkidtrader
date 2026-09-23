@@ -295,6 +295,15 @@ class DBot {
 
             api_base.setIsRunning(true);
             this.interpreter.run(code).catch(error => {
+                // A Stop button press is an intentional cancellation. The
+                // interpreter promise may reject while it is being torn down;
+                // never convert that normal cancellation into the global
+                // "Sorry for the interruption" error screen.
+                if (api_base.is_stopping) {
+                    console.info('[TrapKid DBot] Run cancelled by user Stop.');
+                    return;
+                }
+
                 globalObserver.emit('Error', error);
                 this.stopBot();
             });
