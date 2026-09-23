@@ -81,7 +81,7 @@ export default Engine =>
                         epoch: Number(tick.epoch),
                         tickEpoch: Number(tick.epoch),
                         entryEpoch: this.analyzerEntryEpoch || null,
-                        analyzerLockedEntryQuote: Number(this.analyzerSignal.lockedQuote ?? this.analyzerSignal.entryQuote ?? 0) || null,
+                        analyzerLockedEntryQuote: this.analyzerEntryQuote,
                         isSellAvailable: this.isSellAvailable,
                         bidPrice: Number(this.data?.contract?.bid_price),
                         buyPrice: Number(this.data?.contract?.buy_price),
