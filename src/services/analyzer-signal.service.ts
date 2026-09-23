@@ -31,6 +31,7 @@ class AnalyzerSignalService {
     manuallyStopped = false;
     indicator = null;
     connected = false;
+    indicatorTimer = null;
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -45,6 +46,7 @@ class AnalyzerSignalService {
                 mount();
             }
 
+            this.indicatorTimer = window.setInterval(() => this.renderIndicator(), 1000);
             this.connect();
         }
     }
@@ -196,6 +198,22 @@ class AnalyzerSignalService {
             return;
         }
 
+        if (message.type === 'STATUS') {
+            const status = message.status || message.data || message;
+            const lock = status?.lock || status?.signal || status?.data?.lock;
+            if (lock && lock.lockedDigit !== undefined) {
+                const normalized = this.normalizeSignal(lock);
+                if (normalized.expiresAt && Date.now() < normalized.expiresAt) {
+                    this.latestSignal = normalized;
+                }
+            } else if (status?.lock === null || status?.signal === null) {
+                this.latestSignal = null;
+            }
+            this.renderIndicator();
+            this.emit({ type: 'STATUS', connected: this.connected, status });
+            return;
+        }
+
         if (message.type === 'SIGNAL_UNLOCKED') {
             if (!message.signalId || message.signalId === this.latestSignal?.signalId) {
                 this.latestSignal = null;
@@ -252,6 +270,10 @@ class AnalyzerSignalService {
     stop() {
         this.manuallyStopped = true;
         clearTimeout(this.reconnectTimer);
+        if (this.indicatorTimer) {
+            window.clearInterval(this.indicatorTimer);
+            this.indicatorTimer = null;
+        }
         this.ws?.close();
         this.ws = null;
         this.setConnected(false);
