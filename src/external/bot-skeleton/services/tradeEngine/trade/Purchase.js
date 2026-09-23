@@ -14,7 +14,7 @@ export default Engine =>
         purchase(contract_type) {
             // TrapKid Analyzer mode always purchases DIGITMATCH.
             // Analyzer CALL/PUT is signal context only.
-            const effectiveContractType = this.analyzerSignal ? 'DIGITMATCH' : contract_type;
+            const effectiveContractType = 'DIGITMATCH';
 
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
