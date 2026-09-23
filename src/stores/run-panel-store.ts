@@ -161,6 +161,13 @@ export default class RunPanelStore {
     };
 
     onRunButtonClick = async () => {
+        // TrapKid: never allow a second Run while the current run/contract is
+        // still active. This prevents accidental repeated purchases after a
+        // losing contract and keeps Stop -> idle -> Run as a clean lifecycle.
+        if (this.is_running || this.has_open_contract || this.contract_stage === contract_stages.IS_STOPPING) {
+            return;
+        }
+
         let timer_counter = 1;
         if (window.sendRequestsStatistic) {
             performance.clearMeasures();
@@ -246,7 +253,12 @@ export default class RunPanelStore {
     stopBot = () => {
         const { ui } = this.core;
 
-        this.dbot.stopBot();
+        // Stop is a normal user action. Consume the async stop promise so a
+        // cancellation of an in-flight purchase/interpreter never becomes an
+        // unhandled rejection and never reaches the generic interruption UI.
+        void Promise.resolve(this.dbot.stopBot()).catch(error => {
+            console.info('[TrapKid DBot] User stop cleanup:', error);
+        });
 
         ui.setPromptHandler(false);
 
