@@ -29,7 +29,7 @@ export default Engine =>
                     const selectedMarket = event.market;
                     if (selectedMarket) {
                         this.symbol = selectedMarket;
-                        if (this.tradeOptions && this.analyzerSignal) {
+                        if (this.tradeOptions && !this.analyzerSignal) {
                             this.tradeOptions.symbol = selectedMarket;
                         }
                     }
@@ -40,7 +40,7 @@ export default Engine =>
 
                 const tick = event.tick;
                 if (tick.symbol) this.symbol = tick.symbol;
-                if (this.tradeOptions && this.analyzerSignal && tick.symbol) {
+                if (this.tradeOptions && !this.analyzerSignal && tick.symbol) {
                     this.tradeOptions.symbol = tick.symbol;
                 }
 
@@ -99,7 +99,7 @@ export default Engine =>
 
             if (snapshot.selectedMarket) {
                 this.symbol = snapshot.selectedMarket;
-                if (this.tradeOptions && this.analyzerSignal) {
+                if (this.tradeOptions && !this.analyzerSignal) {
                     this.tradeOptions.symbol = snapshot.selectedMarket;
                 }
             }
