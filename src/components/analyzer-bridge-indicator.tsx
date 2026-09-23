@@ -16,6 +16,7 @@ const AnalyzerBridgeIndicator = () => {
     }, []);
 
     const signal = state.signal;
+    const feed = state.feed;
     const remaining = signal?.expiresAt
         ? Math.max(0, Math.ceil((signal.expiresAt - Date.now()) / 1000))
         : 0;
@@ -38,8 +39,11 @@ const AnalyzerBridgeIndicator = () => {
                 <div style={{marginTop:9}}>
                     <div style={{color:'#aaa'}}>LOCKED DIGIT</div>
                     <div style={{fontSize:30,fontWeight:800,lineHeight:1.1}}>{signal.lockedDigit}</div>
-                    <div style={{marginTop:4,color:'#aaa'}}>R_100 · Match signal</div>
-                    <div style={{color:'#aaa'}}>Expires in: {remaining}s</div>
+                    <div style={{marginTop:4,color:'#aaa'}}>{signal.symbol || '—'} · DIGITMATCH</div>
+                    <div style={{color:'#aaa'}}>Analyzer quote: {feed?.quote ?? '—'} · digit: {feed?.digit ?? '—'}</div>
+                    <div style={{color:'#aaa'}}>Pending lock: held until Run</div>
+                    {state.activeSignal ? <div style={{color:'#35d07f'}}>RUN LOCK: {state.activeSignal.lockedDigit}</div> : null}
+                    <div style={{color:'#aaa'}}>Analyzer expiry: {remaining}s</div>
                 </div>
             ) : (
                 <div style={{marginTop:9,color:'#aaa'}}>
