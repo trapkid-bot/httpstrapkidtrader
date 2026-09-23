@@ -44,6 +44,14 @@ export default Engine =>
                             isSold: this.isSold,
                             profit: Number(contract.profit),
                             payout: Number(contract.payout),
+                            sellPrice: Number(contract.sell_price ?? contract.bid_price),
+                            exitQuote: this.isSold || this.isExpired ? Number(contract.exit_tick ?? contract.current_spot) : undefined,
+                            exitDigit: this.isSold || this.isExpired
+                                ? Number(String(contract.exit_tick_display_value ?? contract.exit_tick ?? contract.current_spot_display_value ?? contract.current_spot).replace(/[^0-9]/g, '').slice(-1))
+                                : undefined,
+                            exitEpoch: this.isSold || this.isExpired
+                                ? Number(contract.exit_tick_time ?? contract.sell_time ?? contract.date_expiry ?? 0)
+                                : undefined,
                             status: contract.status,
                         });
                     }
