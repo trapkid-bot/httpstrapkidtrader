@@ -3,7 +3,7 @@ import debounce from 'lodash.debounce';
 import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { localize } from '@deriv-com/translations';
 import { getLast } from '../../../utils/binary-utils';
-import { observer as globalObserver } from '../../../utils/observer';
+import { globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 import { getDirection, getLastDigit } from '../utils/helpers';
 import { expectPositiveInteger } from '../utils/sanitize';
@@ -30,32 +30,9 @@ export default Engine =>
                     const { epoch } = lastTick;
                     this.latestTick = lastTick;
 
-                    // TrapKid analyzer exit: once the locked digit appears after
-                    // entry, close the open Match contract at market price.
-                    if (
-                        this.analyzerSignal &&
-                        !this.analyzerExitTriggered &&
-                        ['CALL', 'PUT'].includes(this.tradeOptions?.contract_type) &&
-                        this.contractId &&
-                        !this.isSold &&
-                        !this.isExpired &&
-                        Number(epoch) > Number(this.analyzerEntryEpoch || 0) &&
-                        Date.now() < Number(this.analyzerSignal.expiresAt || 0)
-                    ) {
-                        const digit = getLastDigit(lastTick.quote.toFixed(this.getPipSize()));
-                        if (digit === Number(this.analyzerSignal.lockedDigit) && this.isSellAtMarketAvailable()) {
-                            this.analyzerExitTriggered = true;
-                            globalObserver.emit(
-                                'ui.log.info',
-                                `TRAPKID ANALYZER: locked digit ${digit} appeared — early-selling ${this.tradeOptions.contract_type} contract`
-                            );
-                            Promise.resolve(this.sellAtMarket()).catch(error => {
-                                this.analyzerExitTriggered = false;
-                                globalObserver.emit('Error', error);
-                            });
-                        }
-                    }
-
+                    // Standard DIGITMATCH contracts settle according to their
+                    // duration. They do not use the custom CALL/PUT early-sell
+                    // trigger, so Analyzer mode must not call sellAtMarket().
                     this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
                 };
 
@@ -136,11 +113,11 @@ export default Engine =>
         getOhlc(args) {
             const { granularity = this.options.candleInterval || 60, field } = args || {};
 
-            return new Promise(resolve =>
+            return new Promise(resolve => {
                 this.$scope.ticksService
                     .request({ symbol: this.symbol, granularity })
-                    .then(ohlc => resolve(field ? ohlc.map(o => o[field]) : ohlc))
-            );
+                    .then(ohlc => resolve(field ? ohlc.map(o => o[field]) : ohlc));
+            });
         }
 
         getOhlcFromEnd(args) {
@@ -184,7 +161,6 @@ export default Engine =>
                     if (data.msg_type === 'proposal') {
                         try {
                             this.subscription_id_for_accumulators = data.subscription.id;
-                            // this was done because we can multile arrays in the respone and the list comes in reverse order
                             const stat_list = (data.proposal.contract_details.ticks_stayed_in || []).flat().reverse();
                             ticks_stayed_in_list = [...stat_list, ...ticks_stayed_in_list];
                             if (ticks_stayed_in_list.length > 0) resolve(ticks_stayed_in_list);
@@ -199,17 +175,14 @@ export default Engine =>
 
         async fetchStatsForAccumulators() {
             try {
-                // request stats for accumulators
                 const debouncedAccumulatorsRequest = debounce(() => this.requestAccumulatorStats(), 300);
                 debouncedAccumulatorsRequest();
-                // wait for proposal response
                 const ticks_stayed_in_list = await this.handleOnMessageForAccumulators();
                 return ticks_stayed_in_list;
             } catch (error) {
                 globalObserver.emit('Error in subscription promise:', error);
                 throw error;
             } finally {
-                // forget all proposal subscriptions so we can fetch new stats data on new call
                 await api_base?.api?.send({ forget_all: 'proposal' });
                 this.is_proposal_requested_for_accumulators = false;
                 this.subscription_id_for_accumulators = null;
@@ -228,7 +201,6 @@ export default Engine =>
         async getStatList() {
             try {
                 const ticks_stayed_in = await this.fetchStatsForAccumulators();
-                // we need to send only lastest 100 ticks
                 return ticks_stayed_in?.slice(0, 100);
             } catch (error) {
                 globalObserver.emit('Error fetching current stat:', error);
