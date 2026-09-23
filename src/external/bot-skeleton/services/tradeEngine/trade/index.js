@@ -129,9 +129,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             prediction: lockedDigit,
-            // Keep the contract open long enough for the locked digit to appear.
-            // Ticks.js will request an early sell as soon as the target digit is seen.
-            duration: 1,
+            // One entry per Run. Do not create a new contract after settlement.
+            // A 100-tick expiry prevents the old immediate 1-tick settlement.
+            duration: 100,
             duration_unit: 't',
             symbol: analyzerSignal.symbol,
         };
@@ -182,6 +182,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             }
 
             this.analyzerSignal = nextSignal;
+            return;
             this.analyzerEntryEpoch = 0;
             this.analyzerExitTriggered = false;
             this.tradeOptions = {
@@ -262,11 +263,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     makeDirectPurchaseDecision() {
         // Analyzer execution bypasses the normal Blockly countdown/strategy gate.
         // Run means BUY NOW using DIGITMATCH with the injected market and locked digit.
-        if (this.analyzerAutoPurchase && this.analyzerSignal) {
+        if (this.analyzerSingleEntry && this.analyzerSignal) {
             this.is_proposal_subscription_required = false;
             this.store.dispatch(proposalsReady());
-            this.analyzerWaitingForTarget = true;
-            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: RUN released locked entry. Waiting for digit ' + this.analyzerSignal.lockedDigit + ' on ' + this.analyzerSignal.symbol + ' before opening the 1-tick DIGITMATCH.');
+            this.analyzerWaitingForTarget = false;
+            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: RUN opened the single locked DIGITMATCH entry. No additional contracts will be opened automatically.');
+            Promise.resolve().then(() => this.purchase('DIGITMATCH')).catch(error => {
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: entry purchase failed: ' + (error?.message || error));
+            });
             return;
         }
 
