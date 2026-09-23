@@ -11,8 +11,9 @@ declare global {
     }
 }
 
+// Live TrapKid analyzer public WebSocket tunnel.
 const DEFAULT_URL =
-    'wss://race-packaging-proposition-jacob.trycloudflare.com/ws/ticks';
+    'wss://incidence-aaa-chambers-reed.trycloudflare.com/ws/ticks';
 
 const getUrl = () => {
     if (typeof window !== 'undefined') {
@@ -38,7 +39,6 @@ class AnalyzerSignalService {
             this.connect();
         }
     }
-
 
     setConnected(connected) {
         this.connected = Boolean(connected);
@@ -94,7 +94,7 @@ class AnalyzerSignalService {
             const signal = message.signal || message.data || message;
             if (!signal || signal.lockedDigit === undefined) return;
             this.latestSignal = this.normalizeSignal(signal);
-                this.emit({ type: 'SIGNAL_LOCKED', signal: this.latestSignal });
+            this.emit({ type: 'SIGNAL_LOCKED', signal: this.latestSignal });
             return;
         }
 
@@ -109,7 +109,7 @@ class AnalyzerSignalService {
             } else if (status?.lock === null || status?.signal === null) {
                 this.latestSignal = null;
             }
-                this.emit({ type: 'STATUS', connected: this.connected, status });
+            this.emit({ type: 'STATUS', connected: this.connected, status });
             return;
         }
 
@@ -117,7 +117,7 @@ class AnalyzerSignalService {
             if (!message.signalId || message.signalId === this.latestSignal?.signalId) {
                 this.latestSignal = null;
             }
-                this.emit({ type: 'SIGNAL_UNLOCKED', signalId: message.signalId });
+            this.emit({ type: 'SIGNAL_UNLOCKED', signalId: message.signalId });
         }
     }
 
@@ -143,7 +143,7 @@ class AnalyzerSignalService {
 
         if (!this.latestSignal.expiresAt || Date.now() >= this.latestSignal.expiresAt) {
             this.latestSignal = null;
-                return null;
+            return null;
         }
 
         return { ...this.latestSignal };
