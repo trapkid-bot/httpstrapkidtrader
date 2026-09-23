@@ -15,75 +15,103 @@ let tickListenerKey;
 export default Engine =>
     class Ticks extends Engine {
         async watchTicks(symbol) {
-            if (symbol && this.symbol !== symbol) {
-                const previousSymbol = this.symbol;
-                this.symbol = symbol;
-                const { ticksService } = this.$scope;
+            // TRAPKID ANALYZER MODE:
+            // The Analyzer is the ONLY source of market selection and live ticks.
+            // Do not open a second Deriv tick stream here. Deriv is used only for
+            // the actual contract transaction when Run is clicked.
+            if (this.analyzerFeedUnsubscribe) {
+                this.analyzerFeedUnsubscribe();
+                this.analyzerFeedUnsubscribe = null;
+            }
 
-                if (previousSymbol) {
-                    await ticksService.stopMonitor({
-                        symbol: previousSymbol,
-                        key: tickListenerKey,
-                    });
-                }
-                const callback = ticks => {
-                    if (this.is_proposal_subscription_required) {
-                        this.checkProposalReady();
-                    }
-                    const lastTick = ticks.slice(-1)[0];
-                    const { epoch } = lastTick;
-                    this.latestTick = lastTick;
-
-                    if (this.analyzerAutoPurchase && this.analyzerWaitingForTarget && !this.contractId && this.analyzerSignal) {
-                        const pipSize = this.getPipSize();
-                        const displayQuote = Number(lastTick.quote).toFixed(pipSize);
-                        const currentDigit = Number(displayQuote.slice(-1));
-                        const targetDigit = Number(this.analyzerSignal.lockedDigit);
-
-                        if (currentDigit === targetDigit) {
-                            this.analyzerWaitingForTarget = false;
-                            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: locked digit ' + targetDigit + ' appeared on ' + this.tradeOptions.symbol + '. Opening 1-tick DIGITMATCH now.');
-                            Promise.resolve(this.purchase('DIGITMATCH')).catch(error => {
-                                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: purchase failed: ' + (error?.message || error));
-                                this.analyzerWaitingForTarget = true;
-                            });
+            const handleAnalyzerEvent = event => {
+                if (event.type === 'MARKET_SELECTED') {
+                    const selectedMarket = event.market;
+                    if (selectedMarket) {
+                        this.symbol = selectedMarket;
+                        if (this.tradeOptions && this.analyzerSignal) {
+                            this.tradeOptions.symbol = selectedMarket;
                         }
                     }
+                    return;
+                }
 
-                    // Analyzer telemetry for genuine 1-tick DIGITMATCH.
-                    // No custom sell-at-market: Deriv handles normal 1-tick settlement.
-                    if (this.analyzerSignal && this.contractId && !this.isSold) {
-                        const pipSize = this.getPipSize();
-                        const displayQuote = Number(lastTick.quote).toFixed(pipSize);
-                        const currentDigit = Number(displayQuote.slice(-1));
-                        const targetDigit = Number(this.analyzerSignal.lockedDigit);
-                        const targetDetected = currentDigit === targetDigit;
+                if (event.type !== 'TICK' || !event.tick) return;
 
-                        analyzerSignalService.publishExecution({
-                            state: targetDetected ? 'TARGET_DETECTED' : 'MONITORING',
-                            signalId: this.analyzerSignal.signalId,
-                            symbol: this.tradeOptions?.symbol || this.symbol,
-                            contractType: 'DIGITMATCH',
-                            prediction: targetDigit,
-                            targetDigit,
-                            contractId: this.contractId,
-                            currentQuote: Number(lastTick.quote),
-                            currentDigit,
-                            epoch,
-                            tickEpoch: epoch,
-                            entryEpoch: this.analyzerEntryEpoch || null,
-                            isSellAvailable: this.isSellAvailable,
-                            bidPrice: Number(this.data?.contract?.bid_price),
-                            buyPrice: Number(this.data?.contract?.buy_price),
-                            profit: Number(this.data?.contract?.profit),
-                        });
-                    }
-                    this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
+                const tick = event.tick;
+                if (tick.symbol) this.symbol = tick.symbol;
+                if (this.tradeOptions && this.analyzerSignal && tick.symbol) {
+                    this.tradeOptions.symbol = tick.symbol;
+                }
+
+                // Preserve the Analyzer's exact quote, epoch and digit.
+                this.latestTick = {
+                    symbol: tick.symbol || this.symbol,
+                    quote: Number(tick.quote),
+                    epoch: Number(tick.epoch),
+                    digit: Number(tick.digit),
+                    receivedAt: tick.receivedAt || Date.now(),
+                    pipSize: tick.pipSize,
                 };
 
-                const key = await ticksService.monitor({ symbol, callback });
-                tickListenerKey = key;
+                if (this.is_proposal_subscription_required) {
+                    this.checkProposalReady();
+                }
+
+                const currentDigit = Number(tick.digit);
+                const targetDigit = this.analyzerSignal
+                    ? Number(this.analyzerSignal.lockedDigit)
+                    : null;
+
+                // Two-tick Analyzer execution telemetry. The Analyzer's tick
+                // stream, not a second Deriv subscription, drives this state.
+                if (this.analyzerSignal && this.contractId && !this.isSold) {
+                    const targetDetected = currentDigit === targetDigit;
+
+                    analyzerSignalService.publishExecution({
+                        state: targetDetected ? 'TARGET_DETECTED' : 'MONITORING',
+                        signalId: this.analyzerSignal.signalId,
+                        symbol: tick.symbol || this.tradeOptions?.symbol || this.symbol,
+                        contractType: 'DIGITMATCH',
+                        prediction: targetDigit,
+                        targetDigit,
+                        contractId: this.contractId,
+                        currentQuote: Number(tick.quote),
+                        currentDigit,
+                        epoch: Number(tick.epoch),
+                        tickEpoch: Number(tick.epoch),
+                        entryEpoch: this.analyzerEntryEpoch || null,
+                        analyzerLockedEntryQuote: Number(this.analyzerSignal.lockedQuote ?? this.analyzerSignal.entryQuote ?? 0) || null,
+                        isSellAvailable: this.isSellAvailable,
+                        bidPrice: Number(this.data?.contract?.bid_price),
+                        buyPrice: Number(this.data?.contract?.buy_price),
+                        profit: Number(this.data?.contract?.profit),
+                    });
+                }
+
+                this.store.dispatch({ type: constants.NEW_TICK, payload: Number(tick.epoch) });
+            };
+
+            // Subscribe once and replay the Analyzer's current snapshot so the
+            // DBot immediately mirrors the currently selected market/feed.
+            this.analyzerFeedUnsubscribe = analyzerSignalService.subscribe(handleAnalyzerEvent);
+            const snapshot = analyzerSignalService.getSnapshot();
+
+            if (snapshot.selectedMarket) {
+                this.symbol = snapshot.selectedMarket;
+                if (this.tradeOptions && this.analyzerSignal) {
+                    this.tradeOptions.symbol = snapshot.selectedMarket;
+                }
             }
+
+            if (snapshot.feed) {
+                handleAnalyzerEvent({ type: 'TICK', tick: snapshot.feed });
+            }
+
+            globalObserver.emit(
+                'ui.log.info',
+                'TRAPKID ANALYZER: live market/tick feed is sourced exclusively from the Analyzer.'
+            );
         }
 
         checkTicksPromiseExists() {
@@ -91,46 +119,22 @@ export default Engine =>
         }
 
         getTicks(toString = false) {
-            return new Promise(resolve => {
-                this.$scope.ticksService.request({ symbol: this.symbol }).then(ticks => {
-                    const ticks_list = ticks.map(tick => {
-                        if (toString) {
-                            return tick.quote.toFixed(this.getPipSize());
-                        }
-                        return tick.quote;
-                    });
-
-                    resolve(ticks_list);
-                });
+            const history = analyzerSignalService.getSnapshot().feedHistory || [];
+            const values = history.map(tick => {
+                const value = Number(tick.quote);
+                return toString ? String(value) : value;
             });
+            return Promise.resolve(values);
         }
 
         getLastTick(raw, toString = false) {
-            return new Promise((resolve, reject) =>
-                this.$scope.ticksService
-                    .request({ symbol: this.symbol })
-                    .then(ticks => {
-                        try {
-                            let last_tick = raw ? getLast(ticks) : getLast(ticks).quote;
-                            if (!raw && toString) {
-                                last_tick = last_tick.toFixed(this.getPipSize());
-                            }
-                            resolve(last_tick);
-                        } catch (error) {
-                            reject(error);
-                        }
-                    })
-                    .catch(e => {
-                        if (e.code === 'MarketIsClosed') {
-                            const localizedError = {
-                                ...e,
-                                message: getLocalizedErrorMessage(e.code, e.details),
-                            };
-                            globalObserver.emit('Error', localizedError);
-                            resolve(e.code);
-                        }
-                    })
-            );
+            const feed = analyzerSignalService.getSnapshot().feed;
+            if (!feed) return Promise.reject(new Error('Analyzer live feed is not connected.'));
+
+            if (raw) return Promise.resolve({ ...feed });
+
+            const value = Number(feed.quote);
+            return Promise.resolve(toString ? String(value) : value);
         }
 
         getLastDigit() {
@@ -174,7 +178,9 @@ export default Engine =>
         }
 
         getPipSize() {
-            return this.$scope.ticksService.pipSizes[this.symbol];
+            const feed = analyzerSignalService.getSnapshot().feed;
+            if (Number.isInteger(Number(feed?.pipSize))) return Number(feed.pipSize);
+            return this.$scope?.ticksService?.pipSizes?.[this.symbol] ?? 2;
         }
 
         async requestAccumulatorStats() {
