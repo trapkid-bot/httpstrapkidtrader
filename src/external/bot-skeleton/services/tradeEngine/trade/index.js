@@ -100,6 +100,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.analyzerEntryEpoch = 0;
         this.analyzerExitTriggered = false;
         this.analyzerAutoPurchase = false;
+        this.analyzerSingleEntry = true;
         this.analyzerLoopPending = false;
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
@@ -122,16 +123,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         }
 
         this.analyzerSignal = analyzerSignal;
-        this.analyzerAutoPurchase = true;
+        // Exactly one contract for each Analyzer Run. Never re-enter after expiry.
+        this.analyzerAutoPurchase = false;
+        this.analyzerSingleEntry = true;
 
         this.tradeOptions = {
             ...validated_trade_options,
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             prediction: lockedDigit,
-            // One entry per Run. Do not create a new contract after settlement.
-            // A 100-tick expiry prevents the old immediate 1-tick settlement.
-            duration: 100,
+            // Analyzer Run uses exactly two ticks: entry tick + settlement tick.
+            duration: 2,
             duration_unit: 't',
             symbol: analyzerSignal.symbol,
         };
@@ -147,6 +149,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             contractType: 'DIGITMATCH',
             prediction: lockedDigit,
             targetDigit: lockedDigit,
+            analyzerEntryQuote: Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote ?? 0) || null,
             score: analyzerSignal.score,
             lockedAt: analyzerSignal.lockedAt,
             expiresAt: analyzerSignal.expiresAt,
