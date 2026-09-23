@@ -124,8 +124,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 basis: 'stake',
                 contract_type: analyzerContractType,
                 prediction: undefined,
-                duration: Number(analyzerSignal.duration) || 60,
-                duration_unit: analyzerSignal.durationUnit || 's',
+                // TrapKid Analyzer execution uses a 1-tick Rise/Fall contract.
+                // The locked digit remains the early-exit trigger.
+                duration: 1,
+                duration_unit: 't',
                 symbol: analyzerSignal.symbol || this.options.symbol,
             };
 
