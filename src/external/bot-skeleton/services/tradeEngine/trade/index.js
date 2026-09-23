@@ -148,7 +148,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             expiresAt: analyzerSignal.expiresAt,
         });
         // Force the DBot tick engine onto EXACTLY the Analyzer-selected market.
-        this.symbol = analyzerSignal.symbol;
         this.watchTicks(analyzerSignal.symbol).catch(error => {
             globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + analyzerSignal.symbol + ': ' + (error?.message || error));
         });
@@ -208,7 +207,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 expiresAt: nextSignal.expiresAt,
             });
 
-            this.symbol = nextSignal.symbol;
             this.watchTicks(nextSignal.symbol).catch(error => {
                 globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + nextSignal.symbol + ': ' + (error?.message || error));
             });
