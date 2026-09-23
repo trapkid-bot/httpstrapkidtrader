@@ -21,6 +21,8 @@ class AnalyzerSignalService {
     ws = null;
     reconnectTimer = null;
     latestSignal = null;
+    activeSignal = null;
+    latestFeed = null;
     listeners = new Set();
     manuallyStopped = false;
     indicator = null;
@@ -109,14 +111,24 @@ class AnalyzerSignalService {
             return;
         }
 
+        if (message.type === 'TICK') {
+            this.latestFeed = {
+                symbol: message.symbol,
+                quote: message.quote,
+                epoch: message.epoch,
+                digit: message.digit,
+                receivedAt: message.receivedAt,
+            };
+            this.emit({ type: 'TICK', tick: this.latestFeed });
+            return;
+        }
+
         if (message.type === 'STATUS') {
             const status = message.status || message.data || message;
             const lock = status?.lock || status?.signal || status?.data?.lock;
             if (lock && lock.lockedDigit !== undefined) {
                 const normalized = this.normalizeSignal(lock);
-                if (normalized.expiresAt && Date.now() < normalized.expiresAt) {
-                    this.latestSignal = normalized;
-                }
+                this.latestSignal = normalized;
             } else if (status?.lock === null || status?.signal === null) {
                 this.latestSignal = null;
             }
@@ -148,16 +160,27 @@ class AnalyzerSignalService {
     }
 
     getValidSignal() {
-        if (!this.latestSignal) return null;
-        if (!Number.isInteger(this.latestSignal.lockedDigit)) return null;
-        if (this.latestSignal.lockedDigit < 0 || this.latestSignal.lockedDigit > 9) return null;
+        const signal = this.activeSignal || this.latestSignal;
+        if (!signal) return null;
+        if (!Number.isInteger(signal.lockedDigit)) return null;
+        if (signal.lockedDigit < 0 || signal.lockedDigit > 9) return null;
+        return { ...signal };
+    }
 
-        if (!this.latestSignal.expiresAt || Date.now() >= this.latestSignal.expiresAt) {
-            this.latestSignal = null;
-            return null;
-        }
+    releaseForRun() {
+        const signal = this.latestSignal ? { ...this.latestSignal } : null;
+        if (!signal) return null;
+        this.activeSignal = signal;
+        this.emit({ type: 'RUN_RELEASED', signal: this.activeSignal });
+        return { ...this.activeSignal };
+    }
 
-        return { ...this.latestSignal };
+    getActiveSignal() {
+        return this.activeSignal ? { ...this.activeSignal } : null;
+    }
+
+    clearActiveSignal() {
+        this.activeSignal = null;
     }
 
     /**
@@ -213,6 +236,9 @@ class AnalyzerSignalService {
         return {
             connected: this.connected,
             signal: this.getValidSignal(),
+            pendingSignal: this.latestSignal ? { ...this.latestSignal } : null,
+            activeSignal: this.activeSignal ? { ...this.activeSignal } : null,
+            feed: this.latestFeed ? { ...this.latestFeed } : null,
         };
     }
 
@@ -221,10 +247,13 @@ class AnalyzerSignalService {
         clearTimeout(this.reconnectTimer);
         this.ws?.close();
         this.ws = null;
+        this.activeSignal = null;
         this.setConnected(false);
     }
 }
 
 export const analyzerSignalService = new AnalyzerSignalService();
 export const getAnalyzerSignal = () => analyzerSignalService.getValidSignal();
+export const releaseAnalyzerSignalForRun = () => analyzerSignalService.releaseForRun();
+export const getActiveAnalyzerSignal = () => analyzerSignalService.getActiveSignal();
 export default analyzerSignalService;
