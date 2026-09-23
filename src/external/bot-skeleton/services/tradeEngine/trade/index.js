@@ -86,7 +86,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.options = options;
         this.startPromise = this.loginAndGetBalance(token);
 
-        if (!this.checkTicksPromiseExists()) this.watchTicks(symbol);
+        // TRAPKID Analyzer mode is authoritative. Never fall back to the
+        // site's default/Blockly tick stream (including R_100) for execution.
+        this.watchTicks(symbol);
     }
 
     start(tradeOptions) {
@@ -106,6 +108,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
 
+        if (!analyzerSignal?.signalId || !analyzerSignal?.symbol) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Run blocked — no complete Analyzer lock is available.');
+            return;
+        }
+
         // TRAPKID MODE: Run is ONLY allowed to execute the locked Analyzer
         // digit as a DIGITMATCH contract. Never fall back to Blockly CALL/PUT.
         if (!analyzerSignal) {
@@ -117,6 +124,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         }
 
         const lockedDigit = Number(analyzerSignal.lockedDigit);
+        const lockedEntryQuote = Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote);
+        if (!Number.isFinite(lockedEntryQuote)) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Run blocked — Analyzer entry quote is missing.');
+            return;
+        }
         if (!Number.isInteger(lockedDigit) || lockedDigit < 0 || lockedDigit > 9) {
             globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Invalid locked digit. Run cancelled.');
             return;
@@ -125,7 +137,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         // Freeze the Analyzer snapshot for this Run. Live ticks may continue to
         // update the dashboard, but they must never overwrite these entry values.
         this.analyzerSignal = { ...analyzerSignal };
-        this.analyzerEntryQuote = Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote ?? 0) || null;
+        this.analyzerEntryQuote = lockedEntryQuote;
         this.analyzerEntrySymbol = analyzerSignal.symbol;
         this.analyzerEntryDigit = lockedDigit;
         this.analyzerEntrySignalId = analyzerSignal.signalId;
@@ -163,7 +175,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             expiresAt: analyzerSignal.expiresAt,
         });
         // Force the DBot tick engine onto EXACTLY the Analyzer-selected market.
-        this.watchTicks(analyzerSignal.symbol).catch(error => {
+        this.watchTicks(this.analyzerEntrySymbol).catch(error => {
             globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + analyzerSignal.symbol + ': ' + (error?.message || error));
         });
 
