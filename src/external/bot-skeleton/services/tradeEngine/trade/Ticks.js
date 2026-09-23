@@ -31,6 +31,22 @@ export default Engine =>
                     const { epoch } = lastTick;
                     this.latestTick = lastTick;
 
+                    if (this.analyzerAutoPurchase && this.analyzerWaitingForTarget && !this.contractId && this.analyzerSignal) {
+                        const pipSize = this.getPipSize();
+                        const displayQuote = Number(lastTick.quote).toFixed(pipSize);
+                        const currentDigit = Number(displayQuote.slice(-1));
+                        const targetDigit = Number(this.analyzerSignal.lockedDigit);
+
+                        if (currentDigit === targetDigit) {
+                            this.analyzerWaitingForTarget = false;
+                            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: locked digit ' + targetDigit + ' appeared on ' + this.tradeOptions.symbol + '. Opening 1-tick DIGITMATCH now.');
+                            Promise.resolve(this.purchase('DIGITMATCH')).catch(error => {
+                                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: purchase failed: ' + (error?.message || error));
+                                this.analyzerWaitingForTarget = true;
+                            });
+                        }
+                    }
+
                     // Analyzer telemetry for genuine 1-tick DIGITMATCH.
                     // No custom sell-at-market: Deriv handles normal 1-tick settlement.
                     if (this.analyzerSignal && this.contractId && !this.isSold) {
