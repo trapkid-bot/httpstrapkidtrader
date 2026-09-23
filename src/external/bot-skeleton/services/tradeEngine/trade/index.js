@@ -6,7 +6,7 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
-import { analyzerSignalService, getAnalyzerSignal } from '@/services/analyzer-signal.service';
+import { analyzerSignalService, releaseAnalyzerSignalForRun, getActiveAnalyzerSignal } from '@/services/analyzer-signal.service';
 import { proposalsReady, start } from './state/actions';
 import * as constants from './state/constants';
 import rootReducer from './state/reducers';
@@ -129,7 +129,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             // Ticks.js will request an early sell as soon as the target digit is seen.
             duration: 1,
             duration_unit: 't',
-            symbol: analyzerSignal.symbol || this.options.symbol,
+            symbol: analyzerSignal.symbol,
         };
 
         globalObserver.emit(
@@ -147,6 +147,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             lockedAt: analyzerSignal.lockedAt,
             expiresAt: analyzerSignal.expiresAt,
         });
+        // Force the DBot tick engine onto EXACTLY the Analyzer-selected market.
+        this.symbol = analyzerSignal.symbol;
+        this.watchTicks(analyzerSignal.symbol).catch(error => {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + analyzerSignal.symbol + ': ' + (error?.message || error));
+        });
+
         this.store.dispatch(start());
         this.checkLimits(this.tradeOptions);
         this.makeDirectPurchaseDecision();
@@ -160,7 +166,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         Promise.resolve().then(() => {
             this.analyzerLoopPending = false;
 
-            const nextSignal = getAnalyzerSignal();
+            const nextSignal = getActiveAnalyzerSignal();
             if (!nextSignal) {
                 globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: locked entry expired or unavailable. Continuous execution paused.');
                 return;
@@ -182,7 +188,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 prediction: lockedDigit,
                 duration: 1,
                 duration_unit: 't',
-                symbol: nextSignal.symbol || this.options.symbol,
+                symbol: nextSignal.symbol,
             };
 
             globalObserver.emit(
@@ -200,6 +206,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 score: nextSignal.score,
                 lockedAt: nextSignal.lockedAt,
                 expiresAt: nextSignal.expiresAt,
+            });
+
+            this.symbol = nextSignal.symbol;
+            this.watchTicks(nextSignal.symbol).catch(error => {
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + nextSignal.symbol + ': ' + (error?.message || error));
             });
 
             this.store.dispatch(start());
@@ -252,7 +263,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (this.analyzerAutoPurchase && this.analyzerSignal) {
             this.is_proposal_subscription_required = false;
             this.store.dispatch(proposalsReady());
-            Promise.resolve().then(() => this.purchase('DIGITMATCH'));
+            this.analyzerWaitingForTarget = true;
+            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: RUN released locked entry. Waiting for digit ' + this.analyzerSignal.lockedDigit + ' on ' + this.analyzerSignal.symbol + ' before opening the 1-tick DIGITMATCH.');
             return;
         }
 
