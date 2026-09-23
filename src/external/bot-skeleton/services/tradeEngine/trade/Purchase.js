@@ -54,7 +54,7 @@ export default Engine =>
                         entryEpoch: this.analyzerEntryEpoch,
                         buyPrice: Number(buy.buy_price ?? this.tradeOptions.amount),
                         stake: Number(this.tradeOptions.amount),
-                        duration: 10,
+                        duration: 1,
                         durationUnit: 't',
                     });
                 }
