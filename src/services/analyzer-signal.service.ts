@@ -12,7 +12,7 @@ declare global {
 }
 
 const DEFAULT_URL =
-    'wss://shipping-cos-zum-horse.trycloudflare.com/ws/ticks';
+    'wss://race-packaging-proposition-jacob.trycloudflare.com/ws/ticks';
 
 const getUrl = () => {
     if (typeof window !== 'undefined') {
