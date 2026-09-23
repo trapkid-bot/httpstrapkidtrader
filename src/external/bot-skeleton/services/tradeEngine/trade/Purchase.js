@@ -21,6 +21,14 @@ export default Engine =>
                 return Promise.resolve();
             }
 
+            // Analyzer is mandatory in TrapKid mode. There is deliberately no
+            // fallback to the site's normal R_100/Blockly execution path.
+            if (!this.analyzerSignal || !this.analyzerEntrySignalId || !this.analyzerEntrySymbol || !Number.isFinite(this.analyzerEntryQuote)) {
+                const error = new Error('TrapKid Analyzer lock is incomplete; purchase blocked.');
+                globalObserver.emit('ui.log.error', error.message);
+                return Promise.reject(error);
+            }
+
             const onSuccess = response => {
                 const { buy } = response;
 
@@ -114,7 +122,13 @@ export default Engine =>
                 ).then(onSuccess);
             }
 
-            const trade_option = tradeOptionToBuy(effectiveContractType, this.tradeOptions);
+            const frozenTradeOptions = {
+                ...this.tradeOptions,
+                symbol: this.analyzerEntrySymbol,
+                prediction: this.analyzerEntryDigit,
+                analyzerEntryQuote: this.analyzerEntryQuote,
+            };
+            const trade_option = tradeOptionToBuy(effectiveContractType, frozenTradeOptions);
             const action = () => api_base.api.send(trade_option);
 
             this.isSold = false;
