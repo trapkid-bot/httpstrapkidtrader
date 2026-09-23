@@ -11,7 +11,9 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
-            const effectiveContractType = this.analyzerSignal ? 'DIGITMATCH' : contract_type;
+            const effectiveContractType = this.analyzerSignal
+                ? (this.analyzerSignal.contractType === 'PUT' ? 'PUT' : 'CALL')
+                : contract_type;
 
             // Prevent calling purchase twice
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
@@ -30,8 +32,12 @@ export default Engine =>
 
                 this.contractId = buy.contract_id;
                 if (this.analyzerSignal) {
-                    this.analyzerEntryEpoch = Math.floor(Date.now() / 1000);
+                    this.analyzerEntryEpoch = Number(buy.purchase_time || Math.floor(Date.now() / 1000));
                     this.analyzerExitTriggered = false;
+                    globalObserver.emit(
+                        'ui.log.info',
+                        `TRAPKID ANALYZER: ${effectiveContractType} entered immediately; waiting for locked digit ${this.analyzerSignal.lockedDigit} to early-sell`
+                    );
                 }
                 this.store.dispatch(purchaseSuccessful());
 
