@@ -31,8 +31,8 @@ export default Engine =>
                     const { epoch } = lastTick;
                     this.latestTick = lastTick;
 
-                    // Analyzer execution: every live quote is reported so the
-                    // Analyzer dashboard can show the actual DBot entry/exit path.
+                    // Analyzer telemetry for genuine 1-tick DIGITMATCH.
+                    // No custom sell-at-market: Deriv handles normal 1-tick settlement.
                     if (this.analyzerSignal && this.contractId && !this.isSold) {
                         const pipSize = this.getPipSize();
                         const displayQuote = Number(lastTick.quote).toFixed(pipSize);
@@ -41,7 +41,7 @@ export default Engine =>
                         const targetDetected = currentDigit === targetDigit;
 
                         analyzerSignalService.publishExecution({
-                            state: targetDetected && !this.analyzerExitTriggered ? 'TARGET_DETECTED' : 'MONITORING',
+                            state: targetDetected ? 'TARGET_DETECTED' : 'MONITORING',
                             signalId: this.analyzerSignal.signalId,
                             symbol: this.tradeOptions?.symbol || this.symbol,
                             contractType: 'DIGITMATCH',
@@ -58,54 +58,7 @@ export default Engine =>
                             buyPrice: Number(this.data?.contract?.buy_price),
                             profit: Number(this.data?.contract?.profit),
                         });
-
-                        // Seeing the locked digit is the custom exit trigger.
-                        // A DIGITMATCH contract itself still has normal Deriv
-                        // settlement rules; this is an early market sell.
-                        if (targetDetected && !this.analyzerExitTriggered) {
-                            this.analyzerExitTriggered = true;
-
-                            globalObserver.emit(
-                                'ui.log.info',
-                                `TRAPKID ANALYZER: locked digit ${targetDigit} appeared — requesting early exit`
-                            );
-
-                            if (this.isSellAtMarketAvailable()) {
-                                analyzerSignalService.publishExecution({
-                                    state: 'EXIT_TRIGGERED',
-                                    signalId: this.analyzerSignal.signalId,
-                                    symbol: this.tradeOptions?.symbol || this.symbol,
-                                    contractType: 'DIGITMATCH',
-                                    prediction: targetDigit,
-                                    targetDigit,
-                                    contractId: this.contractId,
-                                    exitQuote: Number(lastTick.quote),
-                                    exitDigit: currentDigit,
-                                    exitEpoch: epoch,
-                                    reason: 'LOCKED_DIGIT_APPEARED',
-                                });
-
-                                Promise.resolve(this.sellAtMarket()).catch(error => {
-                                    analyzerSignalService.publishExecution({
-                                        state: 'EXIT_ERROR',
-                                        signalId: this.analyzerSignal.signalId,
-                                        contractId: this.contractId,
-                                        targetDigit,
-                                        reason: error?.message || 'Early sell failed',
-                                    });
-                                });
-                            } else {
-                                analyzerSignalService.publishExecution({
-                                    state: 'EXIT_UNAVAILABLE',
-                                    signalId: this.analyzerSignal.signalId,
-                                    contractId: this.contractId,
-                                    targetDigit,
-                                    reason: 'CONTRACT_NOT_SELLABLE',
-                                });
-                            }
-                        }
                     }
-
                     this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
                 };
 
