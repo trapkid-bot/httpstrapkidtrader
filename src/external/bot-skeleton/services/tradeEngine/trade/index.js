@@ -6,7 +6,7 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
-import { getAnalyzerSignal } from '@/services/analyzer-signal.service';
+import { analyzerSignalService, getAnalyzerSignal } from '@/services/analyzer-signal.service';
 import { proposalsReady, start } from './state/actions';
 import * as constants from './state/constants';
 import rootReducer from './state/reducers';
@@ -124,7 +124,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             prediction: lockedDigit,
-            duration: 1,
+            // Keep the contract open long enough for the locked digit to appear.
+            // Ticks.js will request an early sell as soon as the target digit is seen.
+            duration: 10,
             duration_unit: 't',
             symbol: analyzerSignal.symbol || this.options.symbol,
         };
@@ -133,6 +135,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             'ui.log.info',
             `TRAPKID ANALYZER: DIGITMATCH ${this.tradeOptions.symbol} | prediction digit ${lockedDigit} | signal ${analyzerSignal.signalId}`
         );
+        analyzerSignalService.publishExecution({
+            state: 'LOCKED',
+            signalId: analyzerSignal.signalId,
+            symbol: this.tradeOptions.symbol,
+            contractType: 'DIGITMATCH',
+            prediction: lockedDigit,
+            targetDigit: lockedDigit,
+            score: analyzerSignal.score,
+            lockedAt: analyzerSignal.lockedAt,
+            expiresAt: analyzerSignal.expiresAt,
+        });
         this.store.dispatch(start());
         this.checkLimits(this.tradeOptions);
         this.makeDirectPurchaseDecision();
