@@ -186,6 +186,10 @@ class AnalyzerSignalService {
         return {
             ...signal,
             lockedDigit: Number(signal.lockedDigit),
+            lockedQuote: Number(signal.lockedQuote ?? signal.entryQuote ?? 0) || null,
+            entryQuote: Number(signal.entryQuote ?? signal.lockedQuote ?? 0) || null,
+            symbol: signal.symbol || signal.market || this.selectedMarket || null,
+            score: Number(signal.score ?? 0) || null,
             lockedAt: this.toMs(signal.lockedAt),
             expiresAt: this.toMs(signal.expiresAt),
         };
@@ -202,7 +206,8 @@ class AnalyzerSignalService {
         if (!signal) return null;
         if (!Number.isInteger(signal.lockedDigit)) return null;
         if (signal.lockedDigit < 0 || signal.lockedDigit > 9) return null;
-        return { ...signal };
+        if (!signal.symbol || !Number.isFinite(Number(signal.lockedQuote ?? signal.entryQuote))) return null;
+        return { ...signal, lockedQuote: Number(signal.lockedQuote ?? signal.entryQuote), entryQuote: Number(signal.entryQuote ?? signal.lockedQuote) };
     }
 
     releaseForRun() {
