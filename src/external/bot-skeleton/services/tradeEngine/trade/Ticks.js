@@ -35,7 +35,7 @@ export default Engine =>
                     if (
                         this.analyzerSignal &&
                         !this.analyzerExitTriggered &&
-                        this.tradeOptions?.contract_type === 'DIGITMATCH' &&
+                        ['CALL', 'PUT'].includes(this.tradeOptions?.contract_type) &&
                         this.contractId &&
                         !this.isSold &&
                         !this.isExpired &&
@@ -47,7 +47,7 @@ export default Engine =>
                             this.analyzerExitTriggered = true;
                             globalObserver.emit(
                                 'ui.log.info',
-                                `TRAPKID ANALYZER: digit ${digit} appeared — selling Match contract`
+                                `TRAPKID ANALYZER: locked digit ${digit} appeared — early-selling ${this.tradeOptions.contract_type} contract`
                             );
                             Promise.resolve(this.sellAtMarket()).catch(error => {
                                 this.analyzerExitTriggered = false;
