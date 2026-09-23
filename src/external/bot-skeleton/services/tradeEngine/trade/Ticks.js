@@ -8,6 +8,7 @@ import { api_base } from '../../api/api-base';
 import { getDirection, getLastDigit } from '../utils/helpers';
 import { expectPositiveInteger } from '../utils/sanitize';
 import * as constants from './state/constants';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 
 let tickListenerKey;
 
@@ -30,9 +31,79 @@ export default Engine =>
                     const { epoch } = lastTick;
                     this.latestTick = lastTick;
 
-                    // Standard DIGITMATCH contracts settle according to their
-                    // duration. They do not use the custom CALL/PUT early-sell
-                    // trigger, so Analyzer mode must not call sellAtMarket().
+                    // Analyzer execution: every live quote is reported so the
+                    // Analyzer dashboard can show the actual DBot entry/exit path.
+                    if (this.analyzerSignal && this.contractId && !this.isSold) {
+                        const pipSize = this.getPipSize();
+                        const displayQuote = Number(lastTick.quote).toFixed(pipSize);
+                        const currentDigit = Number(displayQuote.slice(-1));
+                        const targetDigit = Number(this.analyzerSignal.lockedDigit);
+                        const targetDetected = currentDigit === targetDigit;
+
+                        analyzerSignalService.publishExecution({
+                            state: targetDetected && !this.analyzerExitTriggered ? 'TARGET_DETECTED' : 'MONITORING',
+                            signalId: this.analyzerSignal.signalId,
+                            symbol: this.tradeOptions?.symbol || this.symbol,
+                            contractType: 'DIGITMATCH',
+                            prediction: targetDigit,
+                            targetDigit,
+                            contractId: this.contractId,
+                            currentQuote: Number(lastTick.quote),
+                            currentDigit,
+                            epoch,
+                            isSellAvailable: this.isSellAvailable,
+                            bidPrice: Number(this.data?.contract?.bid_price),
+                            buyPrice: Number(this.data?.contract?.buy_price),
+                            profit: Number(this.data?.contract?.profit),
+                        });
+
+                        // Seeing the locked digit is the custom exit trigger.
+                        // A DIGITMATCH contract itself still has normal Deriv
+                        // settlement rules; this is an early market sell.
+                        if (targetDetected && !this.analyzerExitTriggered) {
+                            this.analyzerExitTriggered = true;
+
+                            globalObserver.emit(
+                                'ui.log.info',
+                                `TRAPKID ANALYZER: locked digit ${targetDigit} appeared — requesting early exit`
+                            );
+
+                            if (this.isSellAtMarketAvailable()) {
+                                analyzerSignalService.publishExecution({
+                                    state: 'EXIT_TRIGGERED',
+                                    signalId: this.analyzerSignal.signalId,
+                                    symbol: this.tradeOptions?.symbol || this.symbol,
+                                    contractType: 'DIGITMATCH',
+                                    prediction: targetDigit,
+                                    targetDigit,
+                                    contractId: this.contractId,
+                                    exitQuote: Number(lastTick.quote),
+                                    exitDigit: currentDigit,
+                                    exitEpoch: epoch,
+                                    reason: 'LOCKED_DIGIT_APPEARED',
+                                });
+
+                                Promise.resolve(this.sellAtMarket()).catch(error => {
+                                    analyzerSignalService.publishExecution({
+                                        state: 'EXIT_ERROR',
+                                        signalId: this.analyzerSignal.signalId,
+                                        contractId: this.contractId,
+                                        targetDigit,
+                                        reason: error?.message || 'Early sell failed',
+                                    });
+                                });
+                            } else {
+                                analyzerSignalService.publishExecution({
+                                    state: 'EXIT_UNAVAILABLE',
+                                    signalId: this.analyzerSignal.signalId,
+                                    contractId: this.contractId,
+                                    targetDigit,
+                                    reason: 'CONTRACT_NOT_SELLABLE',
+                                });
+                            }
+                        }
+                    }
+
                     this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
                 };
 
