@@ -34,12 +34,8 @@ const watchDuring = store =>
         passFlag: 'openContract',
     });
 
-/* The watchScope function is called randomly and resets the prevTick
- * which leads to the same problem we try to solve. So prevTick is isolated
- */
 let prevTick;
 const watchScope = ({ store, stopScope, passScope, passFlag }) => {
-    // in case watch is called after stop is fired
     if (store.getState().scope === stopScope) {
         return Promise.resolve(false);
     }
@@ -104,28 +100,21 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
 
-        // If the local TrapKid analyzer has a live 30-second lock, the lock becomes
-        // the source of truth for the next Match contract. Normal DBot strategies
-        // continue unchanged when no valid analyzer signal is present.
+        // A live TrapKid Analyzer lock is used as the signal source.
+        // The actual DBot trade is ALWAYS DIGITMATCH on the injected symbol.
+        // Analyzer CALL/PUT is analysis context only; it is never the purchased
+        // contract type.
         if (analyzerSignal) {
-            const analyzerContractType =
-                analyzerSignal.contractType === 'PUT' ? 'PUT' : 'CALL';
+            const lockedDigit = Number(analyzerSignal.lockedDigit);
 
             this.analyzerSignal = analyzerSignal;
             this.analyzerAutoPurchase = true;
 
-            // TrapKid execution mode:
-            // 1. Analyzer chooses the Rise/Fall direction and locks the digit.
-            // 2. DBot buys that Rise/Fall contract immediately on Run.
-            // 3. The locked digit is NOT a DIGITMATCH prediction; it is the
-            //    exit trigger watched on the same underlying market.
             this.tradeOptions = {
                 ...validated_trade_options,
                 basis: 'stake',
-                contract_type: analyzerContractType,
-                prediction: undefined,
-                // TrapKid Analyzer execution uses a 1-tick Rise/Fall contract.
-                // The locked digit remains the early-exit trigger.
+                contract_type: 'DIGITMATCH',
+                prediction: lockedDigit,
                 duration: 1,
                 duration_unit: 't',
                 symbol: analyzerSignal.symbol || this.options.symbol,
@@ -133,7 +122,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
             globalObserver.emit(
                 'ui.log.info',
-                `TRAPKID ANALYZER: ${analyzerContractType} ${this.tradeOptions.symbol} | locked exit digit ${analyzerSignal.lockedDigit} | signal ${analyzerSignal.signalId}`
+                `TRAPKID ANALYZER: DIGITMATCH ${this.tradeOptions.symbol} | prediction digit ${lockedDigit} | signal ${analyzerSignal.signalId}`
             );
         } else {
             this.analyzerSignal = null;
@@ -149,17 +138,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (this.token === token) {
             return Promise.resolve();
         }
-        // for strategies using total runs, GetTotalRuns function is trying to get loginid and it gets called before Proposals calls.
-        // the below required loginid to be set in Proposal calls where loginAndGetBalance gets resolved.
-        // Earlier this used to happen as soon as we get ticks_history response and by the time GetTotalRuns gets called we have required info.
         this.accountInfo = api_base.account_info;
         this.token = api_base.token;
         return new Promise(resolve => {
-            // Try to recover from a situation where API doesn't give us a correct response on
-            // "proposal_open_contract" which would make the bot run forever. When there's a "sell"
-            // event, wait a couple seconds for the API to give us the correct "proposal_open_contract"
-            // response, if there's none after x seconds. Send an explicit request, which _should_
-            // solve the issue. This is a backup!
             const subscription = api_base.api.onMessage().subscribe(({ data }) => {
                 if (data.msg_type === 'transaction' && data.transaction.action === 'sell') {
                     this.transaction_recovery_timeout = setTimeout(() => {
@@ -193,13 +174,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     makeDirectPurchaseDecision() {
-        // Analyzer execution deliberately bypasses the normal Blockly purchase
-        // countdown/strategy gate. Run means BUY NOW using the injected Rise/Fall
-        // market and then monitor the locked digit for the early sell.
+        // Analyzer execution bypasses the normal Blockly countdown/strategy gate.
+        // Run means BUY NOW using DIGITMATCH with the injected market and locked digit.
         if (this.analyzerAutoPurchase && this.analyzerSignal) {
             this.is_proposal_subscription_required = false;
             this.store.dispatch(proposalsReady());
-            Promise.resolve().then(() => this.purchase(this.tradeOptions.contract_type));
+            Promise.resolve().then(() => this.purchase('DIGITMATCH'));
             return;
         }
 
