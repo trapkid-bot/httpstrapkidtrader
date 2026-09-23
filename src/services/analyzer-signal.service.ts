@@ -101,11 +101,11 @@ class AnalyzerSignalService {
     }
 
     handleMessage(message) {
-        if (message.type === 'SIGNAL_LOCKED') {
+        if (message.type === 'SIGNAL_LOCKED' || message.type === 'LOCKED_ENTRY') {
             const signal = message.signal || message.data || message;
             if (!signal || signal.lockedDigit === undefined) return;
             this.latestSignal = this.normalizeSignal(signal);
-            this.emit({ type: 'SIGNAL_LOCKED', signal: this.latestSignal });
+            this.emit({ type: message.type, signal: this.latestSignal });
             return;
         }
 
