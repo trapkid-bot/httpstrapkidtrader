@@ -122,7 +122,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             return;
         }
 
-        this.analyzerSignal = analyzerSignal;
+        // Freeze the Analyzer snapshot for this Run. Live ticks may continue to
+        // update the dashboard, but they must never overwrite these entry values.
+        this.analyzerSignal = { ...analyzerSignal };
+        this.analyzerEntryQuote = Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote ?? 0) || null;
+        this.analyzerEntrySymbol = analyzerSignal.symbol;
+        this.analyzerEntryDigit = lockedDigit;
+        this.analyzerEntrySignalId = analyzerSignal.signalId;
         // Exactly one contract for each Analyzer Run. Never re-enter after expiry.
         this.analyzerAutoPurchase = false;
         this.analyzerSingleEntry = true;
@@ -135,7 +141,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             // Analyzer Run uses exactly two ticks: entry tick + settlement tick.
             duration: 2,
             duration_unit: 't',
-            symbol: analyzerSignal.symbol,
+            symbol: this.analyzerEntrySymbol,
+            // Analyzer reference quote is immutable for the lifetime of this Run.
+            analyzerEntryQuote: this.analyzerEntryQuote,
         };
 
         globalObserver.emit(
@@ -149,7 +157,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             contractType: 'DIGITMATCH',
             prediction: lockedDigit,
             targetDigit: lockedDigit,
-            analyzerEntryQuote: Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote ?? 0) || null,
+            analyzerEntryQuote: this.analyzerEntryQuote,
             score: analyzerSignal.score,
             lockedAt: analyzerSignal.lockedAt,
             expiresAt: analyzerSignal.expiresAt,
