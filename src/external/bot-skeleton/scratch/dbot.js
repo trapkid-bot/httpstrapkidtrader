@@ -6,6 +6,7 @@ import Interpreter from '../services/tradeEngine/utils/interpreter';
 import { compareXml, observer as globalObserver } from '../utils';
 import { getSavedWorkspaces, saveWorkspaceToRecent } from '../utils/local-storage';
 import { isDbotRTL } from '../utils/workspace';
+import { getAnalyzerSignal } from '@/services/analyzer-signal.service';
 import main_xml from './xml/main.xml';
 import { forgetAccumulatorsProposalRequest } from './accumulators-proposal-handler';
 import { loadBlockly } from './blockly';
@@ -19,6 +20,7 @@ class DBot {
         this.before_run_funcs = [];
         this.symbol = null;
         this.is_bot_running = false;
+        this.analyzerLockedDigit = null;
     }
 
     /**
@@ -274,6 +276,18 @@ class DBot {
 
         try {
             api_base.is_stopping = false;
+
+            // Use the currently locked Analyzer digit as the prediction for this run.
+            // The digit is captured once when Run is clicked so the running bot does not
+            // silently switch predictions as new analyzer signals arrive.
+            const analyzerSignal = getAnalyzerSignal();
+            this.analyzerLockedDigit = analyzerSignal?.lockedDigit ?? null;
+            if (this.analyzerLockedDigit !== null) {
+                console.info('[TrapKid DBot] Using Analyzer locked digit:', this.analyzerLockedDigit);
+            } else {
+                console.info('[TrapKid DBot] No valid Analyzer locked digit; using bot strategy prediction.');
+            }
+
             const code = this.generateCode();
             if (!this.interpreter.bot.tradeEngine.checkTicksPromiseExists()) this.interpreter = Interpreter();
 
@@ -307,6 +321,11 @@ class DBot {
             var BinaryBotPrivateLastTickTime;
             var BinaryBotPrivateTickAnalysisList = [];
             var BinaryBotPrivateHasCalledTradeOptions = false;
+            var BinaryBotPrivateAnalyzerLockedDigit = ${
+                Number.isInteger(this.analyzerLockedDigit) && this.analyzerLockedDigit >= 0 && this.analyzerLockedDigit <= 9
+                    ? this.analyzerLockedDigit
+                    : 'null'
+            };
 
            
             function recursiveList(list, final_list){
