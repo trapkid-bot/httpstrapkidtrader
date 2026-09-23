@@ -48,14 +48,15 @@ export default Engine =>
                         contractId: buy.contract_id,
                         transactionId: buy.transaction_id,
                         entryQuote: Number(this.latestTick?.quote),
+                        analyzerLockedEntryQuote: Number(this.analyzerSignal.lockedQuote ?? this.analyzerSignal.entryQuote ?? 0) || null,
                         entryDigit: this.latestTick?.quote !== undefined
                             ? Number(String(this.latestTick.quote).replace('.', '').slice(-1))
                             : null,
                         entryEpoch: this.analyzerEntryEpoch,
                         buyPrice: Number(buy.buy_price ?? this.tradeOptions.amount),
                         stake: Number(this.tradeOptions.amount),
-                        duration: 1,
-                        durationUnit: 't',
+                        duration: Number(this.tradeOptions?.duration ?? 2),
+                        durationUnit: this.tradeOptions?.duration_unit || 't',
                     });
                 }
                 this.store.dispatch(purchaseSuccessful());
