@@ -26,6 +26,7 @@ class AnalyzerSignalService {
     indicator = null;
     connected = false;
     indicatorTimer = null;
+    executionQueue = [];
 
     constructor() {
         if (typeof window !== 'undefined') {
@@ -50,6 +51,21 @@ class AnalyzerSignalService {
             this.ws.onopen = () => {
                 this.setConnected(true);
                 this.ws?.send(JSON.stringify({ type: 'STATUS' }));
+
+                // Flush execution telemetry generated before the
+                // Analyzer WebSocket finished connecting.
+                if (this.executionQueue.length) {
+                    const queue = [...this.executionQueue];
+                    this.executionQueue = [];
+
+                    queue.forEach(message => {
+                        try {
+                            this.ws?.send(JSON.stringify(message));
+                        } catch {
+                            // Telemetry must never interrupt trading.
+                        }
+                    });
+                }
             };
 
             this.ws.onmessage = event => {
@@ -161,7 +177,17 @@ class AnalyzerSignalService {
             try {
                 this.ws.send(JSON.stringify(message));
             } catch {
-                // Telemetry must never interrupt trading.
+                // Keep the event queued if the socket closes during send.
+                this.executionQueue.push(message);
+            }
+        } else {
+            // Do not lose execution events while the public Analyzer
+            // WebSocket is still connecting.
+            this.executionQueue.push(message);
+
+            // The normal reconnect loop will flush the queue on open.
+            if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+                this.connect();
             }
         }
 
