@@ -73,6 +73,10 @@ export default Engine =>
                         }
 
                         this.store.dispatch(sell());
+
+                        if (this.analyzerAutoPurchase) {
+                            this.scheduleNextAnalyzerContract();
+                        }
                     } else {
                         this.store.dispatch(openContractReceived());
                     }
