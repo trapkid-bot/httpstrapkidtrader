@@ -2,6 +2,7 @@ import { LogTypes } from '../../../constants/messages';
 import { api_base } from '../../api/api-base';
 import { contractStatus, info, log } from '../utils/broadcast';
 import { observer as globalObserver } from '../../../utils/observer';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
@@ -37,6 +38,25 @@ export default Engine =>
                         'ui.log.info',
                         `TRAPKID ANALYZER: DIGITMATCH entered immediately with prediction digit ${this.analyzerSignal.lockedDigit} on ${this.tradeOptions.symbol}`
                     );
+                    analyzerSignalService.publishExecution({
+                        state: 'ENTERED',
+                        signalId: this.analyzerSignal.signalId,
+                        symbol: this.tradeOptions.symbol,
+                        contractType: 'DIGITMATCH',
+                        prediction: Number(this.analyzerSignal.lockedDigit),
+                        targetDigit: Number(this.analyzerSignal.lockedDigit),
+                        contractId: buy.contract_id,
+                        transactionId: buy.transaction_id,
+                        entryQuote: Number(this.latestTick?.quote),
+                        entryDigit: this.latestTick?.quote !== undefined
+                            ? Number(String(this.latestTick.quote).replace('.', '').slice(-1))
+                            : null,
+                        entryEpoch: this.analyzerEntryEpoch,
+                        buyPrice: Number(buy.buy_price ?? this.tradeOptions.amount),
+                        stake: Number(this.tradeOptions.amount),
+                        duration: 10,
+                        durationUnit: 't',
+                    });
                 }
                 this.store.dispatch(purchaseSuccessful());
 
