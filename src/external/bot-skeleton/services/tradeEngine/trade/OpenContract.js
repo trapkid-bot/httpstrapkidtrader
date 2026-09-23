@@ -58,7 +58,7 @@ export default Engine =>
 
                     broadcastContract({ accountID: api_base.account_info.loginid, ...contract });
 
-                    if (this.isSold) {
+                    if (this.isSold || this.isExpired) {
                         this.contractId = '';
                         clearTimeout(this.transaction_recovery_timeout);
                         this.updateTotals(contract);
