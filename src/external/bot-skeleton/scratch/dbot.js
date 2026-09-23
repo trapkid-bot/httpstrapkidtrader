@@ -392,16 +392,40 @@ class DBot {
      * that trade will be completed first to reflect correct contract status in UI.
      */
     async stopBot() {
+        // Stop is user-initiated. Keep the UI quiet even if an in-flight
+        // interpreter/API operation is cancelled while the bot is stopping.
         if (api_base.is_stopping) return;
 
-        api_base.setIsRunning(false);
+        api_base.is_stopping = true;
 
-        await this.interpreter.stop();
-        this.is_bot_running = false;
-        this.interpreter = null;
-        this.interpreter = Interpreter();
-        await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
-        forgetAccumulatorsProposalRequest(this);
+        try {
+            if (this.interpreter) {
+                await this.interpreter.stop();
+            }
+        } catch (error) {
+            // A cancellation during Stop is expected. Do not turn it into
+            // the generic "Sorry for the interruption" application error.
+            console.info('[TrapKid DBot] Stop completed with an expected cancellation:', error);
+        } finally {
+            this.is_bot_running = false;
+
+            // Recreate a clean interpreter for the next Run without changing
+            // the Analyzer -> DIGITMATCH execution flow.
+            this.interpreter = Interpreter();
+
+            if (this.symbol) {
+                try {
+                    await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+                } catch (error) {
+                    // Re-subscribing to the idle tick stream must never make
+                    // an intentional Stop appear as an application failure.
+                    console.info('[TrapKid DBot] Idle tick resubscribe skipped:', error);
+                }
+            }
+
+            forgetAccumulatorsProposalRequest(this);
+            api_base.is_stopping = false;
+        }
     }
 
     /**
