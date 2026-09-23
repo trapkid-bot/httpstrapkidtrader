@@ -47,8 +47,8 @@ export default Engine =>
                         targetDigit: Number(this.analyzerSignal.lockedDigit),
                         contractId: buy.contract_id,
                         transactionId: buy.transaction_id,
-                        entryQuote: Number(this.latestTick?.quote),
-                        analyzerLockedEntryQuote: Number(this.analyzerSignal.lockedQuote ?? this.analyzerSignal.entryQuote ?? 0) || null,
+                        entryQuote: this.analyzerEntryQuote,
+                        analyzerLockedEntryQuote: this.analyzerEntryQuote,
                         entryDigit: this.latestTick?.quote !== undefined
                             ? Number(String(this.latestTick.quote).replace('.', '').slice(-1))
                             : null,
