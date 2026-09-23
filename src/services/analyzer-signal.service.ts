@@ -23,6 +23,10 @@ class AnalyzerSignalService {
     latestSignal = null;
     activeSignal = null;
     latestFeed = null;
+    feedHistory = [];
+    selectedMarket = null;
+    markets = [];
+    analyzerStatus = null;
     listeners = new Set();
     manuallyStopped = false;
     indicator = null;
@@ -103,6 +107,22 @@ class AnalyzerSignalService {
     }
 
     handleMessage(message) {
+        // The Analyzer is the single source of truth for market selection,
+        // analyzer state and live ticks. DBot must not source market/tick data
+        // independently when this bridge is active.
+        if (message.type === 'MARKET_SELECTED' || message.type === 'MARKET_CHANGED' || message.type === 'SELECTED_MARKET') {
+            const selected = message.market || message.symbol || message.selectedMarket || message.data?.market || message.data?.symbol;
+            if (selected) this.selectedMarket = typeof selected === 'string' ? selected : (selected.symbol || selected.code || null);
+            this.emit({ type: 'MARKET_SELECTED', market: this.selectedMarket, data: message });
+            return;
+        }
+
+        if (message.type === 'MARKETS') {
+            this.markets = Array.isArray(message.markets) ? message.markets : (Array.isArray(message.data) ? message.data : []);
+            this.emit({ type: 'MARKETS', markets: this.markets });
+            return;
+        }
+
         if (message.type === 'SIGNAL_LOCKED' || message.type === 'LOCKED_ENTRY') {
             const signal = message.signal || message.data || message;
             if (!signal || signal.lockedDigit === undefined) return;
@@ -113,18 +133,36 @@ class AnalyzerSignalService {
 
         if (message.type === 'TICK') {
             this.latestFeed = {
-                symbol: message.symbol,
-                quote: message.quote,
-                epoch: message.epoch,
-                digit: message.digit,
-                receivedAt: message.receivedAt,
+                symbol: message.symbol || this.selectedMarket,
+                quote: Number(message.quote),
+                epoch: Number(message.epoch),
+                digit: Number(message.digit),
+                receivedAt: message.receivedAt || Date.now(),
+                pipSize: message.pipSize,
             };
+            this.selectedMarket = this.latestFeed.symbol || this.selectedMarket;
+            this.feedHistory = [...this.feedHistory.slice(-999), this.latestFeed];
             this.emit({ type: 'TICK', tick: this.latestFeed });
             return;
         }
 
         if (message.type === 'STATUS') {
             const status = message.status || message.data || message;
+            this.analyzerStatus = status;
+            const selected = status?.selectedMarket || status?.market || status?.symbol || status?.data?.selectedMarket;
+            if (selected) this.selectedMarket = typeof selected === 'string' ? selected : (selected.symbol || selected.code || null);
+            if (Array.isArray(status?.markets)) this.markets = status.markets;
+            const statusTick = status?.lastTick || status?.tick || status?.liveTick;
+            if (statusTick && statusTick.quote !== undefined) {
+                this.latestFeed = {
+                    symbol: statusTick.symbol || this.selectedMarket,
+                    quote: Number(statusTick.quote),
+                    epoch: Number(statusTick.epoch),
+                    digit: Number(statusTick.digit),
+                    receivedAt: statusTick.receivedAt || Date.now(),
+                    pipSize: statusTick.pipSize,
+                };
+            }
             const lock = status?.lock || status?.signal || status?.data?.lock;
             if (lock && lock.lockedDigit !== undefined) {
                 const normalized = this.normalizeSignal(lock);
@@ -239,6 +277,10 @@ class AnalyzerSignalService {
             pendingSignal: this.latestSignal ? { ...this.latestSignal } : null,
             activeSignal: this.activeSignal ? { ...this.activeSignal } : null,
             feed: this.latestFeed ? { ...this.latestFeed } : null,
+            feedHistory: [...this.feedHistory],
+            selectedMarket: this.selectedMarket,
+            markets: [...this.markets],
+            analyzerStatus: this.analyzerStatus,
         };
     }
 
