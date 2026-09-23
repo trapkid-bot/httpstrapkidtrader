@@ -35,21 +35,34 @@ const AnalyzerBridgeIndicator = () => {
                     {state.connected ? '● CONNECTED' : '○ DISCONNECTED'}
                 </span>
             </div>
+            <div style={{marginTop:9}}>
+                <div style={{color:'#aaa'}}>ANALYZER MARKET</div>
+                <div style={{fontSize:18,fontWeight:800}}>{state.selectedMarket || signal?.symbol || feed?.symbol || '—'}</div>
+                <div style={{marginTop:5,color:'#aaa'}}>Live quote: {feed?.quote ?? '—'} · digit: {feed?.digit ?? '—'}</div>
+                <div style={{color:'#aaa'}}>Epoch: {feed?.epoch ?? '—'}</div>
+            </div>
+
             {signal ? (
-                <div style={{marginTop:9}}>
-                    <div style={{color:'#aaa'}}>LOCKED DIGIT</div>
-                    <div style={{fontSize:30,fontWeight:800,lineHeight:1.1}}>{signal.lockedDigit}</div>
-                    <div style={{marginTop:4,color:'#aaa'}}>{signal.symbol || '—'} · DIGITMATCH</div>
-                    <div style={{color:'#aaa'}}>Analyzer quote: {feed?.quote ?? '—'} · digit: {feed?.digit ?? '—'}</div>
-                    <div style={{color:'#aaa'}}>Pending lock: held until Run</div>
+                <div style={{marginTop:9,paddingTop:8,borderTop:'1px solid rgba(255,255,255,.09)'}}>
+                    <div style={{color:'#aaa'}}>LOCKED ENTRY</div>
+                    <div style={{fontSize:28,fontWeight:800,lineHeight:1.1}}>{signal.lockedDigit}</div>
+                    <div style={{color:'#aaa'}}>Entry quote: {signal.lockedQuote ?? signal.entryQuote ?? '—'}</div>
+                    <div style={{color:'#aaa'}}>Signal: {signal.signalId || '—'}</div>
+                    <div style={{color:'#aaa'}}>Score: {signal.score ?? '—'}</div>
+                    <div style={{color:'#aaa'}}>Expiry: {remaining}s</div>
                     {state.activeSignal ? <div style={{color:'#35d07f'}}>RUN LOCK: {state.activeSignal.lockedDigit}</div> : null}
-                    <div style={{color:'#aaa'}}>Analyzer expiry: {remaining}s</div>
                 </div>
             ) : (
                 <div style={{marginTop:9,color:'#aaa'}}>
-                    {state.connected ? 'Connected — waiting for analyzer lock...' : 'Connecting to local analyzer...'}
+                    {state.connected ? 'Connected — waiting for Analyzer lock...' : 'Connecting to Analyzer...'}
                 </div>
             )}
+
+            <div style={{marginTop:9,paddingTop:8,borderTop:'1px solid rgba(255,255,255,.09)'}}>
+                <div style={{color:'#aaa'}}>ANALYZER SOURCE</div>
+                <div style={{color:'#35d07f',fontWeight:700}}>LIVE TICKS FROM ANALYZER</div>
+                <div style={{color:'#aaa'}}>DBot does not subscribe to a separate tick feed.</div>
+            </div>
             <div style={{marginTop:9,paddingTop:8,borderTop:'1px solid rgba(255,255,255,.09)',color:'#777'}}>
                 Analyzer → DBot bridge
             </div>
