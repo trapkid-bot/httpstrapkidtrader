@@ -1,7 +1,7 @@
 import { LogTypes } from '../../../constants/messages';
 import { api_base } from '../../api/api-base';
 import { contractStatus, info, log } from '../utils/broadcast';
-import { observer as globalObserver } from '../../../utils/observer';
+import { globalObserver } from '../../../utils/observer';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
@@ -12,17 +12,15 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
-            const effectiveContractType = this.analyzerSignal
-                ? (this.analyzerSignal.contractType === 'PUT' ? 'PUT' : 'CALL')
-                : contract_type;
+            // TrapKid Analyzer mode always purchases DIGITMATCH.
+            // Analyzer CALL/PUT is signal context only.
+            const effectiveContractType = this.analyzerSignal ? 'DIGITMATCH' : contract_type;
 
-            // Prevent calling purchase twice
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
             const onSuccess = response => {
-                // Don't unnecessarily send a forget request for a purchased contract.
                 const { buy } = response;
 
                 contractStatus({
@@ -37,7 +35,7 @@ export default Engine =>
                     this.analyzerExitTriggered = false;
                     globalObserver.emit(
                         'ui.log.info',
-                        `TRAPKID ANALYZER: ${effectiveContractType} entered immediately; waiting for locked digit ${this.analyzerSignal.lockedDigit} to early-sell`
+                        `TRAPKID ANALYZER: DIGITMATCH entered immediately with prediction digit ${this.analyzerSignal.lockedDigit} on ${this.tradeOptions.symbol}`
                     );
                 }
                 this.store.dispatch(purchaseSuccessful());
@@ -76,7 +74,6 @@ export default Engine =>
                 return recoverFromError(
                     action,
                     (errorCode, makeDelay) => {
-                        // if disconnected no need to resubscription (handled by live-api)
                         if (errorCode !== 'DisconnectError') {
                             this.renewProposalsOnPurchase();
                         } else {
@@ -95,6 +92,7 @@ export default Engine =>
                     delayIndex++
                 ).then(onSuccess);
             }
+
             const trade_option = tradeOptionToBuy(effectiveContractType, this.tradeOptions);
             const action = () => api_base.api.send(trade_option);
 
