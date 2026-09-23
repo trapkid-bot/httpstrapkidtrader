@@ -100,35 +100,39 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
 
-        // A live TrapKid Analyzer lock is used as the signal source.
-        // The actual DBot trade is ALWAYS DIGITMATCH on the injected symbol.
-        // Analyzer CALL/PUT is analysis context only; it is never the purchased
-        // contract type.
-        if (analyzerSignal) {
-            const lockedDigit = Number(analyzerSignal.lockedDigit);
-
-            this.analyzerSignal = analyzerSignal;
-            this.analyzerAutoPurchase = true;
-
-            this.tradeOptions = {
-                ...validated_trade_options,
-                basis: 'stake',
-                contract_type: 'DIGITMATCH',
-                prediction: lockedDigit,
-                duration: 1,
-                duration_unit: 't',
-                symbol: analyzerSignal.symbol || this.options.symbol,
-            };
-
+        // TRAPKID MODE: Run is ONLY allowed to execute the locked Analyzer
+        // digit as a DIGITMATCH contract. Never fall back to Blockly CALL/PUT.
+        if (!analyzerSignal) {
             globalObserver.emit(
-                'ui.log.info',
-                `TRAPKID ANALYZER: DIGITMATCH ${this.tradeOptions.symbol} | prediction digit ${lockedDigit} | signal ${analyzerSignal.signalId}`
+                'ui.log.error',
+                'TRAPKID ANALYZER: No valid locked digit is available. Run cancelled; no Rise/Fall contract will be purchased.'
             );
-        } else {
-            this.analyzerSignal = null;
-            this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
+            return;
         }
 
+        const lockedDigit = Number(analyzerSignal.lockedDigit);
+        if (!Number.isInteger(lockedDigit) || lockedDigit < 0 || lockedDigit > 9) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Invalid locked digit. Run cancelled.');
+            return;
+        }
+
+        this.analyzerSignal = analyzerSignal;
+        this.analyzerAutoPurchase = true;
+
+        this.tradeOptions = {
+            ...validated_trade_options,
+            basis: 'stake',
+            contract_type: 'DIGITMATCH',
+            prediction: lockedDigit,
+            duration: 1,
+            duration_unit: 't',
+            symbol: analyzerSignal.symbol || this.options.symbol,
+        };
+
+        globalObserver.emit(
+            'ui.log.info',
+            `TRAPKID ANALYZER: DIGITMATCH ${this.tradeOptions.symbol} | prediction digit ${lockedDigit} | signal ${analyzerSignal.signalId}`
+        );
         this.store.dispatch(start());
         this.checkLimits(this.tradeOptions);
         this.makeDirectPurchaseDecision();
