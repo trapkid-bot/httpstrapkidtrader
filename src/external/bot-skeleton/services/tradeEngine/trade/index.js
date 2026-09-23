@@ -162,65 +162,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     scheduleNextAnalyzerContract() {
-        if (!this.analyzerAutoPurchase || this.analyzerLoopPending) return;
-
-        this.analyzerLoopPending = true;
-
-        Promise.resolve().then(() => {
-            this.analyzerLoopPending = false;
-
-            const nextSignal = getActiveAnalyzerSignal();
-            if (!nextSignal) {
-                globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: locked entry expired or unavailable. Continuous execution paused.');
-                return;
-            }
-
-            const lockedDigit = Number(nextSignal.lockedDigit);
-            if (!Number.isInteger(lockedDigit) || lockedDigit < 0 || lockedDigit > 9) {
-                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: current locked digit is invalid. Execution paused.');
-                return;
-            }
-
-            this.analyzerSignal = nextSignal;
-            return;
-            this.analyzerEntryEpoch = 0;
-            this.analyzerExitTriggered = false;
-            this.tradeOptions = {
-                ...this.tradeOptions,
-                basis: 'stake',
-                contract_type: 'DIGITMATCH',
-                prediction: lockedDigit,
-                duration: 1,
-                duration_unit: 't',
-                symbol: nextSignal.symbol,
-            };
-
-            globalObserver.emit(
-                'ui.log.info',
-                'TRAPKID ANALYZER: next 1-tick DIGITMATCH ' + this.tradeOptions.symbol + ' | prediction digit ' + lockedDigit + ' | signal ' + nextSignal.signalId
-            );
-
-            analyzerSignalService.publishExecution({
-                state: 'LOCKED',
-                signalId: nextSignal.signalId,
-                symbol: this.tradeOptions.symbol,
-                contractType: 'DIGITMATCH',
-                prediction: lockedDigit,
-                targetDigit: lockedDigit,
-                score: nextSignal.score,
-                lockedAt: nextSignal.lockedAt,
-                expiresAt: nextSignal.expiresAt,
-            });
-
-            this.watchTicks(nextSignal.symbol).catch(error => {
-                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + nextSignal.symbol + ': ' + (error?.message || error));
-            });
-
-            this.store.dispatch(start());
-            this.checkLimits(this.tradeOptions);
-            this.makeDirectPurchaseDecision();
-        });
+        // Analyzer Run is intentionally single-entry only.
+        // Never open another contract automatically after settlement.
+        globalObserver.emit(
+            'ui.log.info',
+            'TRAPKID ANALYZER: single-entry mode — no automatic re-entry.'
+        );
     }
+
     loginAndGetBalance(token) {
         if (this.token === token) {
             return Promise.resolve();
