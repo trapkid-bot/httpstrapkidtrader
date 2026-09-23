@@ -7,6 +7,10 @@ import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
 import { analyzerSignalService, releaseAnalyzerSignalForRun, getActiveAnalyzerSignal } from '@/services/analyzer-signal.service';
+
+// Keep the trade engine independent of a named getAnalyzerSignal export.
+// The Analyzer service itself is the single source of truth for the locked signal.
+const getAnalyzerSignal = () => analyzerSignalService.getValidSignal();
 import { proposalsReady, start } from './state/actions';
 import * as constants from './state/constants';
 import rootReducer from './state/reducers';
