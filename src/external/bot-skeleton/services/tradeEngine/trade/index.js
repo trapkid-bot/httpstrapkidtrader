@@ -99,6 +99,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.analyzerSignal = null;
         this.analyzerEntryEpoch = 0;
         this.analyzerExitTriggered = false;
+        this.analyzerAutoPurchase = false;
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
@@ -107,17 +108,30 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         // the source of truth for the next Match contract. Normal DBot strategies
         // continue unchanged when no valid analyzer signal is present.
         if (analyzerSignal) {
+            const analyzerContractType =
+                analyzerSignal.contractType === 'PUT' ? 'PUT' : 'CALL';
+
             this.analyzerSignal = analyzerSignal;
+            this.analyzerAutoPurchase = true;
+
+            // TrapKid execution mode:
+            // 1. Analyzer chooses the Rise/Fall direction and locks the digit.
+            // 2. DBot buys that Rise/Fall contract immediately on Run.
+            // 3. The locked digit is NOT a DIGITMATCH prediction; it is the
+            //    exit trigger watched on the same underlying market.
             this.tradeOptions = {
                 ...validated_trade_options,
-                contract_type: 'DIGITMATCH',
-                prediction: analyzerSignal.lockedDigit,
-                duration: 10,
-                duration_unit: 't',
+                basis: 'stake',
+                contract_type: analyzerContractType,
+                prediction: undefined,
+                duration: Number(analyzerSignal.duration) || 60,
+                duration_unit: analyzerSignal.durationUnit || 's',
                 symbol: analyzerSignal.symbol || this.options.symbol,
             };
-            globalObserver.emit('ui.log.info', 
-                `TRAPKID ANALYZER: locked digit ${analyzerSignal.lockedDigit} | signal ${analyzerSignal.signalId}`
+
+            globalObserver.emit(
+                'ui.log.info',
+                `TRAPKID ANALYZER: ${analyzerContractType} ${this.tradeOptions.symbol} | locked exit digit ${analyzerSignal.lockedDigit} | signal ${analyzerSignal.signalId}`
             );
         } else {
             this.analyzerSignal = null;
@@ -177,6 +191,16 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     makeDirectPurchaseDecision() {
+        // Analyzer execution deliberately bypasses the normal Blockly purchase
+        // countdown/strategy gate. Run means BUY NOW using the injected Rise/Fall
+        // market and then monitor the locked digit for the early sell.
+        if (this.analyzerAutoPurchase && this.analyzerSignal) {
+            this.is_proposal_subscription_required = false;
+            this.store.dispatch(proposalsReady());
+            Promise.resolve().then(() => this.purchase(this.tradeOptions.contract_type));
+            return;
+        }
+
         const { has_payout_block, is_basis_payout } = checkBlocksForProposalRequest();
         this.is_proposal_subscription_required = has_payout_block || is_basis_payout;
 
