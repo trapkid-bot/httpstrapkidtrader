@@ -22,7 +22,7 @@ export default Engine =>
 
                     if (this.analyzerSignal && this.contractId) {
                         analyzerSignalService.publishExecution({
-                            state: this.isSold ? 'SOLD' : 'OPEN',
+                            state: this.isSold ? 'SOLD' : this.isExpired ? 'SETTLED' : 'OPEN',
                             signalId: this.analyzerSignal.signalId,
                             symbol: this.tradeOptions?.symbol || this.symbol,
                             contractType: 'DIGITMATCH',
