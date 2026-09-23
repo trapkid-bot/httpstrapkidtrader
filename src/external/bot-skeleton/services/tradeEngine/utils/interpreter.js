@@ -81,6 +81,12 @@ const Interpreter = () => {
                     loop();
                 })
                 .catch(e => {
+                    // A user-initiated Stop intentionally interrupts pending async
+                    // interpreter work. Do not surface that cancellation as a bot error.
+                    if ($scope.stopped) {
+                        return;
+                    }
+
                     // e.error for errors get from API, e for code errors
                     $scope.observer.emit('Error', e.error || e);
                 });
