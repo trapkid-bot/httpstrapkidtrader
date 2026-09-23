@@ -51,6 +51,8 @@ export default Engine =>
                             currentQuote: Number(lastTick.quote),
                             currentDigit,
                             epoch,
+                            tickEpoch: epoch,
+                            entryEpoch: this.analyzerEntryEpoch || null,
                             isSellAvailable: this.isSellAvailable,
                             bidPrice: Number(this.data?.contract?.bid_price),
                             buyPrice: Number(this.data?.contract?.buy_price),
