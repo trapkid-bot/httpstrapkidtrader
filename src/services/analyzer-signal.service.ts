@@ -144,6 +144,30 @@ class AnalyzerSignalService {
         return { ...this.latestSignal };
     }
 
+    /**
+     * Publish DBot execution telemetry back through the same Analyzer bridge.
+     * The Analyzer server can broadcast these events to its dashboard.
+     */
+    publishExecution(execution) {
+        const message = {
+            type: 'DBOT_EXECUTION',
+            execution: {
+                ...execution,
+                timestamp: Date.now(),
+            },
+        };
+
+        if (this.ws?.readyState === WebSocket.OPEN) {
+            try {
+                this.ws.send(JSON.stringify(message));
+            } catch {
+                // Telemetry must never interrupt trading.
+            }
+        }
+
+        this.emit(message);
+    }
+
     emit(event) {
         this.listeners.forEach(listener => {
             try {
