@@ -96,6 +96,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.analyzerEntryEpoch = 0;
         this.analyzerExitTriggered = false;
         this.analyzerAutoPurchase = false;
+        this.analyzerLoopPending = false;
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
         const analyzerSignal = getAnalyzerSignal();
@@ -126,7 +127,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             prediction: lockedDigit,
             // Keep the contract open long enough for the locked digit to appear.
             // Ticks.js will request an early sell as soon as the target digit is seen.
-            duration: 10,
+            duration: 1,
             duration_unit: 't',
             symbol: analyzerSignal.symbol || this.options.symbol,
         };
@@ -151,6 +152,61 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.makeDirectPurchaseDecision();
     }
 
+    scheduleNextAnalyzerContract() {
+        if (!this.analyzerAutoPurchase || this.analyzerLoopPending) return;
+
+        this.analyzerLoopPending = true;
+
+        Promise.resolve().then(() => {
+            this.analyzerLoopPending = false;
+
+            const nextSignal = getAnalyzerSignal();
+            if (!nextSignal) {
+                globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: locked entry expired or unavailable. Continuous execution paused.');
+                return;
+            }
+
+            const lockedDigit = Number(nextSignal.lockedDigit);
+            if (!Number.isInteger(lockedDigit) || lockedDigit < 0 || lockedDigit > 9) {
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: current locked digit is invalid. Execution paused.');
+                return;
+            }
+
+            this.analyzerSignal = nextSignal;
+            this.analyzerEntryEpoch = 0;
+            this.analyzerExitTriggered = false;
+            this.tradeOptions = {
+                ...this.tradeOptions,
+                basis: 'stake',
+                contract_type: 'DIGITMATCH',
+                prediction: lockedDigit,
+                duration: 1,
+                duration_unit: 't',
+                symbol: nextSignal.symbol || this.options.symbol,
+            };
+
+            globalObserver.emit(
+                'ui.log.info',
+                'TRAPKID ANALYZER: next 1-tick DIGITMATCH ' + this.tradeOptions.symbol + ' | prediction digit ' + lockedDigit + ' | signal ' + nextSignal.signalId
+            );
+
+            analyzerSignalService.publishExecution({
+                state: 'LOCKED',
+                signalId: nextSignal.signalId,
+                symbol: this.tradeOptions.symbol,
+                contractType: 'DIGITMATCH',
+                prediction: lockedDigit,
+                targetDigit: lockedDigit,
+                score: nextSignal.score,
+                lockedAt: nextSignal.lockedAt,
+                expiresAt: nextSignal.expiresAt,
+            });
+
+            this.store.dispatch(start());
+            this.checkLimits(this.tradeOptions);
+            this.makeDirectPurchaseDecision();
+        });
+    }
     loginAndGetBalance(token) {
         if (this.token === token) {
             return Promise.resolve();
