@@ -15,14 +15,7 @@ declare global {
 const DEFAULT_URL =
     'wss://incidence-aaa-chambers-reed.trycloudflare.com/ws/ticks';
 
-const getUrl = () => {
-    if (typeof window !== 'undefined') {
-        const configured = window.__TRAPKID_ANALYZER_WS_URL__;
-        const stored = window.localStorage?.getItem('TRAPKID_ANALYZER_WS_URL');
-        return configured || stored || DEFAULT_URL;
-    }
-    return DEFAULT_URL;
-};
+const getUrl = () => DEFAULT_URL;
 
 class AnalyzerSignalService {
     ws = null;
@@ -50,7 +43,9 @@ class AnalyzerSignalService {
         if (this.ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(this.ws.readyState)) return;
 
         try {
-            this.ws = new WebSocket(getUrl());
+            const url = getUrl();
+            console.info('[TrapKid Analyzer] Connecting to:', url);
+            this.ws = new WebSocket(url);
 
             this.ws.onopen = () => {
                 this.setConnected(true);
