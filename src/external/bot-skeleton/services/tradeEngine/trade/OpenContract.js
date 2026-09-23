@@ -2,6 +2,7 @@ import { getRoundedNumber } from '@/components/shared';
 import { api_base } from '../../api/api-base';
 import { contract as broadcastContract, contractStatus } from '../utils/broadcast';
 import { openContractReceived, sell } from './state/actions';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 
 export default Engine =>
     class OpenContract extends Engine {
@@ -18,6 +19,34 @@ export default Engine =>
                     this.setContractFlags(contract);
 
                     this.data.contract = contract;
+
+                    if (this.analyzerSignal && this.contractId) {
+                        analyzerSignalService.publishExecution({
+                            state: this.isSold ? 'SOLD' : 'OPEN',
+                            signalId: this.analyzerSignal.signalId,
+                            symbol: this.tradeOptions?.symbol || this.symbol,
+                            contractType: 'DIGITMATCH',
+                            prediction: Number(this.analyzerSignal.lockedDigit),
+                            targetDigit: Number(this.analyzerSignal.lockedDigit),
+                            contractId: this.contractId,
+                            entryQuote: Number(contract.entry_tick),
+                            entryDigit: contract.entry_tick !== undefined
+                                ? Number(String(contract.entry_tick_display_value ?? contract.entry_tick).replace(/[^0-9]/g, '').slice(-1))
+                                : null,
+                            currentQuote: Number(contract.current_spot),
+                            currentDigit: contract.current_spot_display_value !== undefined
+                                ? Number(String(contract.current_spot_display_value).replace(/[^0-9]/g, '').slice(-1))
+                                : null,
+                            bidPrice: Number(contract.bid_price),
+                            buyPrice: Number(contract.buy_price),
+                            isSellAvailable: this.isSellAvailable,
+                            isExpired: this.isExpired,
+                            isSold: this.isSold,
+                            profit: Number(contract.profit),
+                            payout: Number(contract.payout),
+                            status: contract.status,
+                        });
+                    }
 
                     broadcastContract({ accountID: api_base.account_info.loginid, ...contract });
 
