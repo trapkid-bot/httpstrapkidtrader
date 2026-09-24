@@ -52,7 +52,11 @@ export default Engine =>
                         symbol: this.tradeOptions.symbol,
                         contractType: 'DIGITMATCH',
                         prediction: Number(this.analyzerSignal.lockedDigit),
-                        targetDigit: Number(this.analyzerSignal.lockedDigit),
+                        targetDigit: Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit),
+                        entryDigit: Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit),
+                        exitDigit: Number(this.analyzerSignal.exitDigit ?? this.analyzerSignal.hotDigit),
+                        hotDigit: Number(this.analyzerSignal.exitDigit ?? this.analyzerSignal.hotDigit),
+                        direction: this.analyzerSignal.direction || null,
                         contractId: buy.contract_id,
                         transactionId: buy.transaction_id,
                         entryQuote: this.analyzerEntryQuote,
@@ -63,7 +67,7 @@ export default Engine =>
                         entryEpoch: this.analyzerEntryEpoch,
                         buyPrice: Number(buy.buy_price ?? this.tradeOptions.amount),
                         stake: Number(this.tradeOptions.amount),
-                        duration: Number(this.tradeOptions?.duration ?? 2),
+                        duration: Number(this.tradeOptions?.duration ?? 1),
                         durationUnit: this.tradeOptions?.duration_unit || 't',
                     });
                 }
