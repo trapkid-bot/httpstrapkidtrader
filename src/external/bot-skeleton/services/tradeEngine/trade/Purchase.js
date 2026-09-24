@@ -1,6 +1,8 @@
 import { LogTypes } from '../../../constants/messages';
 import { api_base } from '../../api/api-base';
 import { contractStatus, info, log } from '../utils/broadcast';
+import { observer as globalObserver } from '../../../utils/observer';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
@@ -11,13 +13,23 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
-            // Prevent calling purchase twice
+            // TrapKid Analyzer mode always purchases DIGITMATCH.
+            // Analyzer CALL/PUT is signal context only.
+            const effectiveContractType = 'DIGITMATCH';
+
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
+            // Analyzer is mandatory in TrapKid mode. There is deliberately no
+            // fallback to the site's normal R_100/Blockly execution path.
+            if (!this.analyzerSignal || !this.analyzerEntrySignalId || !this.analyzerEntrySymbol || !Number.isFinite(this.analyzerEntryQuote)) {
+                const error = new Error('TrapKid Analyzer lock is incomplete; purchase blocked.');
+                globalObserver.emit('ui.log.error', error.message);
+                return Promise.reject(error);
+            }
+
             const onSuccess = response => {
-                // Don't unnecessarily send a forget request for a purchased contract.
                 const { buy } = response;
 
                 contractStatus({
@@ -27,6 +39,34 @@ export default Engine =>
                 });
 
                 this.contractId = buy.contract_id;
+                if (this.analyzerSignal) {
+                    this.analyzerEntryEpoch = Number(buy.purchase_time || Math.floor(Date.now() / 1000));
+                    this.analyzerExitTriggered = false;
+                    globalObserver.emit(
+                        'ui.log.info',
+                        `TRAPKID ANALYZER: DIGITMATCH entered immediately with prediction digit ${this.analyzerSignal.lockedDigit} on ${this.tradeOptions.symbol}`
+                    );
+                    analyzerSignalService.publishExecution({
+                        state: 'ENTERED',
+                        signalId: this.analyzerSignal.signalId,
+                        symbol: this.tradeOptions.symbol,
+                        contractType: 'DIGITMATCH',
+                        prediction: Number(this.analyzerSignal.lockedDigit),
+                        targetDigit: Number(this.analyzerSignal.lockedDigit),
+                        contractId: buy.contract_id,
+                        transactionId: buy.transaction_id,
+                        entryQuote: this.analyzerEntryQuote,
+                        analyzerLockedEntryQuote: this.analyzerEntryQuote,
+                        entryDigit: this.latestTick?.quote !== undefined
+                            ? Number(String(this.latestTick.quote).replace('.', '').slice(-1))
+                            : null,
+                        entryEpoch: this.analyzerEntryEpoch,
+                        buyPrice: Number(buy.buy_price ?? this.tradeOptions.amount),
+                        stake: Number(this.tradeOptions.amount),
+                        duration: Number(this.tradeOptions?.duration ?? 2),
+                        durationUnit: this.tradeOptions?.duration_unit || 't',
+                    });
+                }
                 this.store.dispatch(purchaseSuccessful());
 
                 if (this.is_proposal_subscription_required) {
@@ -39,13 +79,13 @@ export default Engine =>
                     accountID: this.accountInfo.loginid,
                     totalRuns: this.updateAndReturnTotalRuns(),
                     transaction_ids: { buy: buy.transaction_id },
-                    contract_type,
+                    contract_type: effectiveContractType,
                     buy_price: buy.buy_price,
                 });
             };
 
             if (this.is_proposal_subscription_required) {
-                const { id, askPrice } = this.selectProposal(contract_type);
+                const { id, askPrice } = this.selectProposal(effectiveContractType);
 
                 const action = () => api_base.api.send({ buy: id, price: askPrice });
 
@@ -63,7 +103,6 @@ export default Engine =>
                 return recoverFromError(
                     action,
                     (errorCode, makeDelay) => {
-                        // if disconnected no need to resubscription (handled by live-api)
                         if (errorCode !== 'DisconnectError') {
                             this.renewProposalsOnPurchase();
                         } else {
@@ -82,7 +121,14 @@ export default Engine =>
                     delayIndex++
                 ).then(onSuccess);
             }
-            const trade_option = tradeOptionToBuy(contract_type, this.tradeOptions);
+
+            const frozenTradeOptions = {
+                ...this.tradeOptions,
+                symbol: this.analyzerEntrySymbol,
+                prediction: this.analyzerEntryDigit,
+                analyzerEntryQuote: this.analyzerEntryQuote,
+            };
+            const trade_option = tradeOptionToBuy(effectiveContractType, frozenTradeOptions);
             const action = () => api_base.api.send(trade_option);
 
             this.isSold = false;
