@@ -60,21 +60,30 @@ export default Engine =>
 
                 const currentDigit = Number(tick.digit);
                 const targetDigit = this.analyzerSignal
-                    ? Number(this.analyzerSignal.lockedDigit)
+                    ? Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit)
+                    : null;
+                const exitDigit = this.analyzerSignal
+                    ? Number(this.analyzerSignal.exitDigit ?? this.analyzerSignal.hotDigit)
                     : null;
 
-                // Two-tick Analyzer execution telemetry. The Analyzer's tick
-                // stream, not a second Deriv subscription, drives this state.
+                // Analyzer remains the sole live-feed source. After a DIGITMATCH
+                // purchase, the frozen hot/exit digit is the early-sell trigger.
+                // A sell is attempted only when Deriv says the contract is
+                // currently sellable; otherwise the contract settles normally.
                 if (this.analyzerSignal && this.contractId && !this.isSold) {
-                    const targetDetected = currentDigit === targetDigit;
+                    const exitDetected = Number.isInteger(exitDigit) && currentDigit === exitDigit;
 
                     analyzerSignalService.publishExecution({
-                        state: targetDetected ? 'TARGET_DETECTED' : 'MONITORING',
+                        state: exitDetected ? 'EXIT_DIGIT_DETECTED' : 'MONITORING',
                         signalId: this.analyzerSignal.signalId,
                         symbol: tick.symbol || this.tradeOptions?.symbol || this.symbol,
                         contractType: 'DIGITMATCH',
                         prediction: targetDigit,
                         targetDigit,
+                        entryDigit: targetDigit,
+                        exitDigit,
+                        hotDigit: exitDigit,
+                        direction: this.analyzerSignal.direction || null,
                         contractId: this.contractId,
                         currentQuote: Number(tick.quote),
                         currentDigit,
@@ -82,11 +91,34 @@ export default Engine =>
                         tickEpoch: Number(tick.epoch),
                         entryEpoch: this.analyzerEntryEpoch || null,
                         analyzerLockedEntryQuote: this.analyzerEntryQuote,
+                        analyzerEntryQuote: this.analyzerEntryQuote,
+                        analyzerExitQuote: this.analyzerSignal.exitQuote ?? this.analyzerSignal.hotQuote ?? null,
+                        pipSize: this.analyzerSignal.pipSize ?? tick.pipSize ?? null,
                         isSellAvailable: this.isSellAvailable,
                         bidPrice: Number(this.data?.contract?.bid_price),
                         buyPrice: Number(this.data?.contract?.buy_price),
                         profit: Number(this.data?.contract?.profit),
                     });
+
+                    if (
+                        exitDetected &&
+                        this.isSellAvailable &&
+                        !this.analyzerExitTriggered &&
+                        typeof this.sellAtMarket === 'function'
+                    ) {
+                        this.analyzerExitTriggered = true;
+                        globalObserver.emit(
+                            'ui.log.info',
+                            'TRAPKID ANALYZER: hot/exit digit ' + exitDigit + ' detected — requesting early sell for contract ' + this.contractId + '.'
+                        );
+                        Promise.resolve(this.sellAtMarket()).catch(error => {
+                            this.analyzerExitTriggered = false;
+                            globalObserver.emit(
+                                'ui.log.error',
+                                'TRAPKID ANALYZER: early sell failed: ' + (error?.message || error)
+                            );
+                        });
+                    }
                 }
 
                 this.store.dispatch({ type: constants.NEW_TICK, payload: Number(tick.epoch) });
