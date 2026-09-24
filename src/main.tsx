@@ -12,6 +12,8 @@ import {
 import { applyReact19DomPolyfills } from './utils/react19-dom-polyfills';
 import { performVersionCheck } from './utils/version-check';
 import './styles/index.scss';
+// Start TrapKid Analyzer bridge at application startup.
+import './services/analyzer-signal.service';
 
 applyReact19DomPolyfills();
 
