@@ -184,6 +184,58 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.makeDirectPurchaseDecision();
     }
 
+    waitForAnalyzerTargetAndPurchase() {
+        if (this.analyzerTargetUnsubscribe || this.analyzerPurchaseStarted || this.contractId) return;
+
+        const targetDigit = Number(this.analyzerEntryDigit);
+        const signalId = this.analyzerEntrySignalId;
+
+        const tryPurchase = tick => {
+            if (this.analyzerPurchaseStarted || this.contractId) return true;
+            if (!tick || tick.symbol !== this.analyzerEntrySymbol) return false;
+
+            const digit = Number(tick.digit);
+            if (digit !== targetDigit) return false;
+
+            this.analyzerPurchaseStarted = true;
+            if (this.analyzerTargetUnsubscribe) {
+                this.analyzerTargetUnsubscribe();
+                this.analyzerTargetUnsubscribe = null;
+            }
+
+            globalObserver.emit(
+                'ui.log.info',
+                `TRAPKID ANALYZER: target digit ${targetDigit} detected on Analyzer live tick — buying DIGITMATCH now | signal ${signalId}`
+            );
+
+            Promise.resolve()
+                .then(() => this.purchase('DIGITMATCH'))
+                .catch(error => {
+                    this.analyzerPurchaseStarted = false;
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID ANALYZER: entry purchase failed: ' + (error?.message || error)
+                    );
+                });
+            return true;
+        };
+
+        const snapshot = analyzerSignalService.getSnapshot();
+        if (snapshot.feed && tryPurchase(snapshot.feed)) return;
+
+        this.analyzerWaitingForTarget = true;
+        globalObserver.emit(
+            'ui.log.info',
+            `TRAPKID ANALYZER: RUN is waiting for locked digit ${targetDigit} from the Analyzer live stream. No other tick source is used.`
+        );
+
+        this.analyzerTargetUnsubscribe = analyzerSignalService.subscribe(event => {
+            if (event.type === 'TICK') {
+                tryPurchase(event.tick);
+            }
+        });
+    }
+
     scheduleNextAnalyzerContract() {
         // Analyzer Run is intentionally single-entry only.
         // Never open another contract automatically after settlement.
@@ -238,11 +290,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (this.analyzerSingleEntry && this.analyzerSignal) {
             this.is_proposal_subscription_required = false;
             this.store.dispatch(proposalsReady());
-            this.analyzerWaitingForTarget = false;
-            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: RUN opened the single locked DIGITMATCH entry. No additional contracts will be opened automatically.');
-            Promise.resolve().then(() => this.purchase('DIGITMATCH')).catch(error => {
-                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: entry purchase failed: ' + (error?.message || error));
-            });
+            this.waitForAnalyzerTargetAndPurchase();
             return;
         }
 
