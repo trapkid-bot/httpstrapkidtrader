@@ -150,8 +150,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             prediction: lockedDigit,
-            // Analyzer Run uses exactly two ticks: entry tick + settlement tick.
-            duration: 2,
+            // TrapKid Analyzer execution is a standard 1-tick DIGITMATCH.
+            duration: 1,
             duration_unit: 't',
             symbol: this.analyzerEntrySymbol,
             // Analyzer reference quote is immutable for the lifetime of this Run.
@@ -286,11 +286,26 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
     makeDirectPurchaseDecision() {
         // Analyzer execution bypasses the normal Blockly countdown/strategy gate.
-        // Run means BUY NOW using DIGITMATCH with the injected market and locked digit.
+        // Run means BUY NOW using DIGITMATCH with the frozen Analyzer market/digit.
         if (this.analyzerSingleEntry && this.analyzerSignal) {
             this.is_proposal_subscription_required = false;
             this.store.dispatch(proposalsReady());
-            this.waitForAnalyzerTargetAndPurchase();
+            this.analyzerPurchaseStarted = true;
+            globalObserver.emit(
+                'ui.log.info',
+                'TRAPKID ANALYZER: Run accepted — purchasing 1-tick DIGITMATCH now on ' +
+                    this.analyzerEntrySymbol +
+                    ' with entry digit ' +
+                    this.analyzerEntryDigit +
+                    '.'
+            );
+            Promise.resolve(this.purchase('DIGITMATCH')).catch(error => {
+                this.analyzerPurchaseStarted = false;
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER: entry purchase failed: ' + (error?.message || error)
+                );
+            });
             return;
         }
 
