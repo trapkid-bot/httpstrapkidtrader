@@ -207,6 +207,10 @@ class AnalyzerSignalService {
         const exitDigit = Number(signal.exitDigit ?? signal.hotDigit ?? signal.lockedDigit);
         const entryQuote = Number(signal.entryQuote ?? signal.lockedQuote ?? 0);
         const exitQuote = Number(signal.exitQuote ?? signal.hotQuote ?? 0);
+        const lockedAt = this.toMs(signal.lockedAt) || Date.now();
+        const suppliedExpiresAt = this.toMs(signal.expiresAt);
+        // TrapKid's Analyzer selection window is 15 seconds.
+        const expiresAt = suppliedExpiresAt || (lockedAt + 15000);
 
         return {
             ...signal,
@@ -224,8 +228,8 @@ class AnalyzerSignalService {
             hotQuote: Number.isFinite(exitQuote) ? exitQuote : null,
             pipSize: Number.isFinite(Number(signal.pipSize)) ? Number(signal.pipSize) : null,
             score: Number(signal.score ?? 0) || null,
-            lockedAt: this.toMs(signal.lockedAt),
-            expiresAt: this.toMs(signal.expiresAt),
+            lockedAt,
+            expiresAt,
             lockedEpoch: Number.isFinite(Number(signal.lockedEpoch)) ? Number(signal.lockedEpoch) : null,
         };
     }
