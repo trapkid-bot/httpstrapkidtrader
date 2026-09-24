@@ -2,6 +2,7 @@ import { getRoundedNumber } from '@/components/shared';
 import { api_base } from '../../api/api-base';
 import { contract as broadcastContract, contractStatus } from '../utils/broadcast';
 import { openContractReceived, sell } from './state/actions';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 
 export default Engine =>
     class OpenContract extends Engine {
@@ -19,9 +20,45 @@ export default Engine =>
 
                     this.data.contract = contract;
 
+                    if (this.analyzerSignal && this.contractId) {
+                        analyzerSignalService.publishExecution({
+                            state: this.isSold ? 'SOLD' : this.isExpired ? 'SETTLED' : 'OPEN',
+                            signalId: this.analyzerSignal.signalId,
+                            symbol: this.tradeOptions?.symbol || this.symbol,
+                            contractType: 'DIGITMATCH',
+                            prediction: Number(this.analyzerSignal.lockedDigit),
+                            targetDigit: Number(this.analyzerSignal.lockedDigit),
+                            contractId: this.contractId,
+                            entryQuote: Number(contract.entry_tick),
+                            entryDigit: contract.entry_tick !== undefined
+                                ? Number(String(contract.entry_tick_display_value ?? contract.entry_tick).replace(/[^0-9]/g, '').slice(-1))
+                                : null,
+                            currentQuote: Number(contract.current_spot),
+                            currentDigit: contract.current_spot_display_value !== undefined
+                                ? Number(String(contract.current_spot_display_value).replace(/[^0-9]/g, '').slice(-1))
+                                : null,
+                            bidPrice: Number(contract.bid_price),
+                            buyPrice: Number(contract.buy_price),
+                            isSellAvailable: this.isSellAvailable,
+                            isExpired: this.isExpired,
+                            isSold: this.isSold,
+                            profit: Number(contract.profit),
+                            payout: Number(contract.payout),
+                            sellPrice: Number(contract.sell_price ?? contract.bid_price),
+                            exitQuote: this.isSold || this.isExpired ? Number(contract.exit_tick ?? contract.current_spot) : undefined,
+                            exitDigit: this.isSold || this.isExpired
+                                ? Number(String(contract.exit_tick_display_value ?? contract.exit_tick ?? contract.current_spot_display_value ?? contract.current_spot).replace(/[^0-9]/g, '').slice(-1))
+                                : undefined,
+                            exitEpoch: this.isSold || this.isExpired
+                                ? Number(contract.exit_tick_time ?? contract.sell_time ?? contract.date_expiry ?? 0)
+                                : undefined,
+                            status: contract.status,
+                        });
+                    }
+
                     broadcastContract({ accountID: api_base.account_info.loginid, ...contract });
 
-                    if (this.isSold) {
+                    if (this.isSold || this.isExpired) {
                         this.contractId = '';
                         clearTimeout(this.transaction_recovery_timeout);
                         this.updateTotals(contract);
@@ -36,6 +73,10 @@ export default Engine =>
                         }
 
                         this.store.dispatch(sell());
+
+                        if (this.analyzerAutoPurchase) {
+                            this.scheduleNextAnalyzerContract();
+                        }
                     } else {
                         this.store.dispatch(openContractReceived());
                     }
