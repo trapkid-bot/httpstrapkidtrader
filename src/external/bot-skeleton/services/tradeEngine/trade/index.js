@@ -141,6 +141,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.analyzerEntrySymbol = analyzerSignal.symbol;
         this.analyzerEntryDigit = lockedDigit;
         this.analyzerEntrySignalId = analyzerSignal.signalId;
+        this.analyzerExitDigit = Number(analyzerSignal.exitDigit ?? analyzerSignal.hotDigit);
+        this.analyzerDirection = analyzerSignal.direction || null;
         // Exactly one contract for each Analyzer Run. Never re-enter after expiry.
         this.analyzerAutoPurchase = false;
         this.analyzerSingleEntry = true;
