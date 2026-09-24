@@ -203,15 +203,30 @@ class AnalyzerSignalService {
     }
 
     normalizeSignal(signal) {
+        const entryDigit = Number(signal.entryDigit ?? signal.lockedDigit);
+        const exitDigit = Number(signal.exitDigit ?? signal.hotDigit ?? signal.lockedDigit);
+        const entryQuote = Number(signal.entryQuote ?? signal.lockedQuote ?? 0);
+        const exitQuote = Number(signal.exitQuote ?? signal.hotQuote ?? 0);
+
         return {
             ...signal,
-            lockedDigit: Number(signal.lockedDigit),
-            lockedQuote: Number(signal.lockedQuote ?? signal.entryQuote ?? 0) || null,
-            entryQuote: Number(signal.entryQuote ?? signal.lockedQuote ?? 0) || null,
+            signalId: signal.signalId || signal.id || null,
             symbol: signal.symbol || signal.market || this.selectedMarket || null,
+            contractType: 'DIGITMATCH',
+            lockedDigit: Number(signal.lockedDigit ?? entryDigit),
+            entryDigit: Number.isInteger(entryDigit) ? entryDigit : null,
+            exitDigit: Number.isInteger(exitDigit) ? exitDigit : null,
+            hotDigit: Number.isInteger(exitDigit) ? exitDigit : null,
+            direction: signal.direction === 'PUT' ? 'PUT' : signal.direction === 'CALL' ? 'CALL' : null,
+            lockedQuote: Number.isFinite(entryQuote) ? entryQuote : null,
+            entryQuote: Number.isFinite(entryQuote) ? entryQuote : null,
+            exitQuote: Number.isFinite(exitQuote) ? exitQuote : null,
+            hotQuote: Number.isFinite(exitQuote) ? exitQuote : null,
+            pipSize: Number.isFinite(Number(signal.pipSize)) ? Number(signal.pipSize) : null,
             score: Number(signal.score ?? 0) || null,
             lockedAt: this.toMs(signal.lockedAt),
             expiresAt: this.toMs(signal.expiresAt),
+            lockedEpoch: Number.isFinite(Number(signal.lockedEpoch)) ? Number(signal.lockedEpoch) : null,
         };
     }
 
@@ -224,15 +239,35 @@ class AnalyzerSignalService {
     getValidSignal() {
         const signal = this.activeSignal || this.latestSignal;
         if (!signal) return null;
-        if (!Number.isInteger(signal.lockedDigit) || signal.lockedDigit < 0 || signal.lockedDigit > 9) return null;
-        if (!signal.signalId || !signal.symbol || !Number.isFinite(Number(signal.lockedQuote ?? signal.entryQuote))) return null;
-        return { ...signal, lockedQuote: Number(signal.lockedQuote ?? signal.entryQuote), entryQuote: Number(signal.entryQuote ?? signal.lockedQuote) };
+
+        const entryDigit = Number(signal.entryDigit ?? signal.lockedDigit);
+        const exitDigit = Number(signal.exitDigit ?? signal.hotDigit);
+        const entryQuote = Number(signal.entryQuote ?? signal.lockedQuote);
+        const expiresAt = Number(signal.expiresAt);
+
+        if (!Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9) return null;
+        if (!Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
+        if (!signal.signalId || !signal.symbol || !Number.isFinite(entryQuote)) return null;
+        if (expiresAt > 0 && Date.now() >= expiresAt) return null;
+
+        return {
+            ...signal,
+            contractType: 'DIGITMATCH',
+            lockedDigit: entryDigit,
+            entryDigit,
+            exitDigit,
+            hotDigit: exitDigit,
+            entryQuote,
+            lockedQuote: entryQuote,
+        };
     }
 
     releaseForRun() {
         const signal = this.getValidSignal();
         if (!signal) return null;
-        this.activeSignal = { ...signal };
+        // Freeze the complete Analyzer decision for this Run. This snapshot is
+        // immutable from the DBot side even while the Analyzer keeps streaming.
+        this.activeSignal = Object.freeze({ ...signal });
         this.persist();
         this.emit({ type: 'RUN_RELEASED', signal: this.activeSignal });
         return { ...this.activeSignal };
