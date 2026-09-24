@@ -17,6 +17,7 @@ import { TStores } from '@deriv/stores/types';
 import { localize } from '@deriv-com/translations';
 import { TDbot } from 'Types';
 import RootStore from './root-store';
+import { analyzerSignalService } from '@/services/analyzer-signal.service';
 
 export type TContractState = {
     buy?: Buy;
@@ -194,7 +195,12 @@ export default class RunPanelStore {
 
         this.registerBotListeners();
 
-        if (!this.dbot.shouldRunBot()) {
+        // TrapKid Analyzer mode is runnable when a complete, unexpired
+        // Analyzer lock exists. Do not require a Blockly root strategy in this mode.
+        const analyzerSignal = analyzerSignalService.getValidSignal();
+        const analyzerMode = Boolean(analyzerSignal?.signalId && analyzerSignal?.symbol);
+
+        if (!analyzerMode && !this.dbot.shouldRunBot()) {
             this.unregisterBotListeners();
             return;
         }
