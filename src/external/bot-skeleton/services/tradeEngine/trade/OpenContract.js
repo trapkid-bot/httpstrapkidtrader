@@ -26,8 +26,12 @@ export default Engine =>
                             signalId: this.analyzerSignal.signalId,
                             symbol: this.tradeOptions?.symbol || this.symbol,
                             contractType: 'DIGITMATCH',
-                            prediction: Number(this.analyzerSignal.lockedDigit),
-                            targetDigit: Number(this.analyzerSignal.lockedDigit),
+                            prediction: Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit),
+                            targetDigit: Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit),
+                            entryDigit: Number(this.analyzerSignal.entryDigit ?? this.analyzerSignal.lockedDigit),
+                            exitDigit: Number(this.analyzerSignal.exitDigit ?? this.analyzerSignal.hotDigit),
+                            hotDigit: Number(this.analyzerSignal.exitDigit ?? this.analyzerSignal.hotDigit),
+                            direction: this.analyzerSignal.direction || null,
                             contractId: this.contractId,
                             entryQuote: Number(contract.entry_tick),
                             entryDigit: contract.entry_tick !== undefined
@@ -45,12 +49,14 @@ export default Engine =>
                             profit: Number(contract.profit),
                             payout: Number(contract.payout),
                             sellPrice: Number(contract.sell_price ?? contract.bid_price),
-                            exitQuote: this.isSold || this.isExpired ? Number(contract.exit_tick ?? contract.current_spot) : undefined,
+                            exitQuote: this.isSold || this.isExpired
+                                ? Number(contract.exit_spot ?? contract.exit_tick ?? contract.current_spot)
+                                : undefined,
                             exitDigit: this.isSold || this.isExpired
-                                ? Number(String(contract.exit_tick_display_value ?? contract.exit_tick ?? contract.current_spot_display_value ?? contract.current_spot).replace(/[^0-9]/g, '').slice(-1))
+                                ? Number(String(contract.exit_spot ?? contract.exit_tick ?? contract.current_spot).replace(/[^0-9]/g, '').slice(-1))
                                 : undefined,
                             exitEpoch: this.isSold || this.isExpired
-                                ? Number(contract.exit_tick_time ?? contract.sell_time ?? contract.date_expiry ?? 0)
+                                ? Number(contract.exit_spot_time ?? contract.exit_tick_time ?? contract.sell_time ?? contract.date_expiry ?? 0)
                                 : undefined,
                             status: contract.status,
                         });
