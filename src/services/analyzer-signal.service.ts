@@ -9,7 +9,7 @@ declare global {
     }
 }
 
-const DEFAULT_URL = 'wss://shipping-cos-zum-horse.trycloudflare.com/ws/ticks';
+const DEFAULT_URL = 'wss://cia-trusted-relatively-development.trycloudflare.com/ws/ticks';
 const STORAGE_KEY = 'trapkid_analyzer_bridge_v2';
 
 const getUrl = () => {
