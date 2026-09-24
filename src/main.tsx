@@ -12,9 +12,6 @@ import {
 import { applyReact19DomPolyfills } from './utils/react19-dom-polyfills';
 import { performVersionCheck } from './utils/version-check';
 import './styles/index.scss';
-// Start the TrapKid analyzer bridge at application startup so its status indicator
-// and WebSocket connection are available immediately, not only after the trading engine loads.
-import './services/analyzer-signal.service';
 
 applyReact19DomPolyfills();
 

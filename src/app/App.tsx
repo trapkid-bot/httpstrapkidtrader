@@ -13,7 +13,6 @@ import { localize, TranslationProvider } from '@deriv-com/translations';
 import CoreStoreProvider from './CoreStoreProvider';
 import i18nInstance from './i18n';
 import './app-root.scss';
-import AnalyzerBridgeIndicator from '@/components/analyzer-bridge-indicator';
 
 const Layout = lazy(() => import('../components/layout'));
 const AppRoot = lazy(() => import('./app-root'));
@@ -114,7 +113,7 @@ function App() {
         handleCallback();
     }, []);
 
-    return (<><RouterProvider router={router} /><AnalyzerBridgeIndicator /></>);
+    return <RouterProvider router={router} />;
 }
 
 export default App;

@@ -6,7 +6,6 @@ import Interpreter from '../services/tradeEngine/utils/interpreter';
 import { compareXml, observer as globalObserver } from '../utils';
 import { getSavedWorkspaces, saveWorkspaceToRecent } from '../utils/local-storage';
 import { isDbotRTL } from '../utils/workspace';
-import { getAnalyzerSignal } from '@/services/analyzer-signal.service';
 import main_xml from './xml/main.xml';
 import { forgetAccumulatorsProposalRequest } from './accumulators-proposal-handler';
 import { loadBlockly } from './blockly';
@@ -20,7 +19,6 @@ class DBot {
         this.before_run_funcs = [];
         this.symbol = null;
         this.is_bot_running = false;
-        this.analyzerLockedDigit = null;
     }
 
     /**
@@ -276,18 +274,6 @@ class DBot {
 
         try {
             api_base.is_stopping = false;
-
-            // Use the currently locked Analyzer digit as the prediction for this run.
-            // The digit is captured once when Run is clicked so the running bot does not
-            // silently switch predictions as new analyzer signals arrive.
-            const analyzerSignal = getAnalyzerSignal();
-            this.analyzerLockedDigit = analyzerSignal?.lockedDigit ?? null;
-            if (this.analyzerLockedDigit !== null) {
-                console.info('[TrapKid DBot] Using Analyzer locked digit:', this.analyzerLockedDigit);
-            } else {
-                console.info('[TrapKid DBot] No valid Analyzer locked digit; using bot strategy prediction.');
-            }
-
             const code = this.generateCode();
             if (!this.interpreter.bot.tradeEngine.checkTicksPromiseExists()) this.interpreter = Interpreter();
 
@@ -295,15 +281,6 @@ class DBot {
 
             api_base.setIsRunning(true);
             this.interpreter.run(code).catch(error => {
-                // A Stop button press is an intentional cancellation. The
-                // interpreter promise may reject while it is being torn down;
-                // never convert that normal cancellation into the global
-                // "Sorry for the interruption" error screen.
-                if (api_base.is_stopping) {
-                    console.info('[TrapKid DBot] Run cancelled by user Stop.');
-                    return;
-                }
-
                 globalObserver.emit('Error', error);
                 this.stopBot();
             });
@@ -330,11 +307,6 @@ class DBot {
             var BinaryBotPrivateLastTickTime;
             var BinaryBotPrivateTickAnalysisList = [];
             var BinaryBotPrivateHasCalledTradeOptions = false;
-            var BinaryBotPrivateAnalyzerLockedDigit = ${
-                Number.isInteger(this.analyzerLockedDigit) && this.analyzerLockedDigit >= 0 && this.analyzerLockedDigit <= 9
-                    ? this.analyzerLockedDigit
-                    : 'null'
-            };
 
            
             function recursiveList(list, final_list){
@@ -401,40 +373,16 @@ class DBot {
      * that trade will be completed first to reflect correct contract status in UI.
      */
     async stopBot() {
-        // Stop is user-initiated. Keep the UI quiet even if an in-flight
-        // interpreter/API operation is cancelled while the bot is stopping.
         if (api_base.is_stopping) return;
 
-        api_base.is_stopping = true;
+        api_base.setIsRunning(false);
 
-        try {
-            if (this.interpreter) {
-                await this.interpreter.stop();
-            }
-        } catch (error) {
-            // A cancellation during Stop is expected. Do not turn it into
-            // the generic "Sorry for the interruption" application error.
-            console.info('[TrapKid DBot] Stop completed with an expected cancellation:', error);
-        } finally {
-            this.is_bot_running = false;
-
-            // Recreate a clean interpreter for the next Run without changing
-            // the Analyzer -> DIGITMATCH execution flow.
-            this.interpreter = Interpreter();
-
-            if (this.symbol) {
-                try {
-                    await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
-                } catch (error) {
-                    // Re-subscribing to the idle tick stream must never make
-                    // an intentional Stop appear as an application failure.
-                    console.info('[TrapKid DBot] Idle tick resubscribe skipped:', error);
-                }
-            }
-
-            forgetAccumulatorsProposalRequest(this);
-            api_base.is_stopping = false;
-        }
+        await this.interpreter.stop();
+        this.is_bot_running = false;
+        this.interpreter = null;
+        this.interpreter = Interpreter();
+        await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+        forgetAccumulatorsProposalRequest(this);
     }
 
     /**

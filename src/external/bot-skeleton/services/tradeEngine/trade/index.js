@@ -6,11 +6,6 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
-import { analyzerSignalService, releaseAnalyzerSignalForRun, getActiveAnalyzerSignal } from '@/services/analyzer-signal.service';
-
-// Keep the trade engine independent of a named getAnalyzerSignal export.
-// The Analyzer service itself is the single source of truth for the locked signal.
-const getAnalyzerSignal = () => analyzerSignalService.getValidSignal();
 import { proposalsReady, start } from './state/actions';
 import * as constants from './state/constants';
 import rootReducer from './state/reducers';
@@ -38,8 +33,12 @@ const watchDuring = store =>
         passFlag: 'openContract',
     });
 
+/* The watchScope function is called randomly and resets the prevTick
+ * which leads to the same problem we try to solve. So prevTick is isolated
+ */
 let prevTick;
 const watchScope = ({ store, stopScope, passScope, passFlag }) => {
+    // in case watch is called after stop is fired
     if (store.getState().scope === stopScope) {
         return Promise.resolve(false);
     }
@@ -86,9 +85,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.options = options;
         this.startPromise = this.loginAndGetBalance(token);
 
-        // TRAPKID Analyzer mode is authoritative. Never fall back to the
-        // site's default/Blockly tick stream (including R_100) for execution.
-        this.watchTicks(symbol);
+        if (!this.checkTicksPromiseExists()) this.watchTicks(symbol);
     }
 
     start(tradeOptions) {
@@ -98,108 +95,30 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         globalObserver.emit('bot.running');
 
-        this.analyzerSignal = null;
-        this.analyzerEntryEpoch = 0;
-        this.analyzerExitTriggered = false;
-        this.analyzerAutoPurchase = false;
-        this.analyzerSingleEntry = true;
-        this.analyzerLoopPending = false;
-
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
-        const analyzerSignal = getAnalyzerSignal();
 
-        if (!analyzerSignal?.signalId || !analyzerSignal?.symbol) {
-            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Run blocked — no complete Analyzer lock is available.');
-            return;
-        }
-
-        // TRAPKID MODE: Run is ONLY allowed to execute the locked Analyzer
-        // digit as a DIGITMATCH contract. Never fall back to Blockly CALL/PUT.
-        if (!analyzerSignal) {
-            globalObserver.emit(
-                'ui.log.error',
-                'TRAPKID ANALYZER: No valid locked digit is available. Run cancelled; no Rise/Fall contract will be purchased.'
-            );
-            return;
-        }
-
-        const lockedDigit = Number(analyzerSignal.lockedDigit);
-        const lockedEntryQuote = Number(analyzerSignal.lockedQuote ?? analyzerSignal.entryQuote);
-        if (!Number.isFinite(lockedEntryQuote)) {
-            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Run blocked — Analyzer entry quote is missing.');
-            return;
-        }
-        if (!Number.isInteger(lockedDigit) || lockedDigit < 0 || lockedDigit > 9) {
-            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: Invalid locked digit. Run cancelled.');
-            return;
-        }
-
-        // Freeze the Analyzer snapshot for this Run. Live ticks may continue to
-        // update the dashboard, but they must never overwrite these entry values.
-        this.analyzerSignal = { ...analyzerSignal };
-        this.analyzerEntryQuote = lockedEntryQuote;
-        this.analyzerEntrySymbol = analyzerSignal.symbol;
-        this.analyzerEntryDigit = lockedDigit;
-        this.analyzerEntrySignalId = analyzerSignal.signalId;
-        // Exactly one contract for each Analyzer Run. Never re-enter after expiry.
-        this.analyzerAutoPurchase = false;
-        this.analyzerSingleEntry = true;
-
-        this.tradeOptions = {
-            ...validated_trade_options,
-            basis: 'stake',
-            contract_type: 'DIGITMATCH',
-            prediction: lockedDigit,
-            // Analyzer Run uses exactly two ticks: entry tick + settlement tick.
-            duration: 2,
-            duration_unit: 't',
-            symbol: this.analyzerEntrySymbol,
-            // Analyzer reference quote is immutable for the lifetime of this Run.
-            analyzerEntryQuote: this.analyzerEntryQuote,
-        };
-
-        globalObserver.emit(
-            'ui.log.info',
-            `TRAPKID ANALYZER: DIGITMATCH ${this.tradeOptions.symbol} | prediction digit ${lockedDigit} | signal ${analyzerSignal.signalId}`
-        );
-        analyzerSignalService.publishExecution({
-            state: 'LOCKED',
-            signalId: analyzerSignal.signalId,
-            symbol: this.tradeOptions.symbol,
-            contractType: 'DIGITMATCH',
-            prediction: lockedDigit,
-            targetDigit: lockedDigit,
-            analyzerEntryQuote: this.analyzerEntryQuote,
-            score: analyzerSignal.score,
-            lockedAt: analyzerSignal.lockedAt,
-            expiresAt: analyzerSignal.expiresAt,
-        });
-        // Force the DBot tick engine onto EXACTLY the Analyzer-selected market.
-        this.watchTicks(this.analyzerEntrySymbol).catch(error => {
-            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: failed to switch tick feed to ' + analyzerSignal.symbol + ': ' + (error?.message || error));
-        });
-
+        this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
         this.store.dispatch(start());
-        this.checkLimits(this.tradeOptions);
-        this.makeDirectPurchaseDecision();
-    }
+        this.checkLimits(validated_trade_options);
 
-    scheduleNextAnalyzerContract() {
-        // Analyzer Run is intentionally single-entry only.
-        // Never open another contract automatically after settlement.
-        globalObserver.emit(
-            'ui.log.info',
-            'TRAPKID ANALYZER: single-entry mode — no automatic re-entry.'
-        );
+        this.makeDirectPurchaseDecision();
     }
 
     loginAndGetBalance(token) {
         if (this.token === token) {
             return Promise.resolve();
         }
+        // for strategies using total runs, GetTotalRuns function is trying to get loginid and it gets called before Proposals calls.
+        // the below required loginid to be set in Proposal calls where loginAndGetBalance gets resolved.
+        // Earlier this used to happen as soon as we get ticks_history response and by the time GetTotalRuns gets called we have required info.
         this.accountInfo = api_base.account_info;
         this.token = api_base.token;
         return new Promise(resolve => {
+            // Try to recover from a situation where API doesn't give us a correct response on
+            // "proposal_open_contract" which would make the bot run forever. When there's a "sell"
+            // event, wait a couple seconds for the API to give us the correct "proposal_open_contract"
+            // response, if there's none after x seconds. Send an explicit request, which _should_
+            // solve the issue. This is a backup!
             const subscription = api_base.api.onMessage().subscribe(({ data }) => {
                 if (data.msg_type === 'transaction' && data.transaction.action === 'sell') {
                     this.transaction_recovery_timeout = setTimeout(() => {
@@ -233,19 +152,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     makeDirectPurchaseDecision() {
-        // Analyzer execution bypasses the normal Blockly countdown/strategy gate.
-        // Run means BUY NOW using DIGITMATCH with the injected market and locked digit.
-        if (this.analyzerSingleEntry && this.analyzerSignal) {
-            this.is_proposal_subscription_required = false;
-            this.store.dispatch(proposalsReady());
-            this.analyzerWaitingForTarget = false;
-            globalObserver.emit('ui.log.info', 'TRAPKID ANALYZER: RUN opened the single locked DIGITMATCH entry. No additional contracts will be opened automatically.');
-            Promise.resolve().then(() => this.purchase('DIGITMATCH')).catch(error => {
-                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: entry purchase failed: ' + (error?.message || error));
-            });
-            return;
-        }
-
         const { has_payout_block, is_basis_payout } = checkBlocksForProposalRequest();
         this.is_proposal_subscription_required = has_payout_block || is_basis_payout;
 

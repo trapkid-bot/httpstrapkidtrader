@@ -690,9 +690,7 @@ window.Blockly.JavaScript.javascriptGenerator.forBlock.trade_definition_tradeopt
             duration_unit      : '${duration_type}',
             currency           : '${currency}',
             amount             : ${stake_amount},
-            prediction         : (BinaryBotPrivateAnalyzerLockedDigit !== null
-                ? BinaryBotPrivateAnalyzerLockedDigit
-                : ${prediction_value || 'undefined'}),
+            prediction         : ${prediction_value || 'undefined'},
             barrierOffset      : ${barrier_offset_value || 'undefined'},
             secondBarrierOffset: ${second_barrier_offset_value || 'undefined'},
             basis              : '${block.type === 'trade_definition_tradeoptions' ? 'stake' : 'payout'}',

@@ -8,110 +8,32 @@ import { api_base } from '../../api/api-base';
 import { getDirection, getLastDigit } from '../utils/helpers';
 import { expectPositiveInteger } from '../utils/sanitize';
 import * as constants from './state/constants';
-import { analyzerSignalService } from '@/services/analyzer-signal.service';
 
 let tickListenerKey;
 
 export default Engine =>
     class Ticks extends Engine {
         async watchTicks(symbol) {
-            // TRAPKID ANALYZER MODE:
-            // The Analyzer is the ONLY source of market selection and live ticks.
-            // Do not open a second Deriv tick stream here. Deriv is used only for
-            // the actual contract transaction when Run is clicked.
-            if (this.analyzerFeedUnsubscribe) {
-                this.analyzerFeedUnsubscribe();
-                this.analyzerFeedUnsubscribe = null;
-            }
+            if (symbol && this.symbol !== symbol) {
+                this.symbol = symbol;
+                const { ticksService } = this.$scope;
 
-            const handleAnalyzerEvent = event => {
-                if (event.type === 'MARKET_SELECTED') {
-                    const selectedMarket = event.market;
-                    if (selectedMarket) {
-                        this.symbol = selectedMarket;
-                        if (this.tradeOptions && !this.analyzerSignal) {
-                            this.tradeOptions.symbol = selectedMarket;
-                        }
+                await ticksService.stopMonitor({
+                    symbol,
+                    key: tickListenerKey,
+                });
+                const callback = ticks => {
+                    if (this.is_proposal_subscription_required) {
+                        this.checkProposalReady();
                     }
-                    return;
-                }
-
-                if (event.type !== 'TICK' || !event.tick) return;
-
-                const tick = event.tick;
-                if (tick.symbol) this.symbol = tick.symbol;
-                if (this.tradeOptions && !this.analyzerSignal && tick.symbol) {
-                    this.tradeOptions.symbol = tick.symbol;
-                }
-
-                // Preserve the Analyzer's exact quote, epoch and digit.
-                this.latestTick = {
-                    symbol: tick.symbol || this.symbol,
-                    quote: Number(tick.quote),
-                    epoch: Number(tick.epoch),
-                    digit: Number(tick.digit),
-                    receivedAt: tick.receivedAt || Date.now(),
-                    pipSize: tick.pipSize,
+                    const lastTick = ticks.slice(-1)[0];
+                    const { epoch } = lastTick;
+                    this.store.dispatch({ type: constants.NEW_TICK, payload: epoch });
                 };
 
-                if (this.is_proposal_subscription_required) {
-                    this.checkProposalReady();
-                }
-
-                const currentDigit = Number(tick.digit);
-                const targetDigit = this.analyzerSignal
-                    ? Number(this.analyzerSignal.lockedDigit)
-                    : null;
-
-                // Two-tick Analyzer execution telemetry. The Analyzer's tick
-                // stream, not a second Deriv subscription, drives this state.
-                if (this.analyzerSignal && this.contractId && !this.isSold) {
-                    const targetDetected = currentDigit === targetDigit;
-
-                    analyzerSignalService.publishExecution({
-                        state: targetDetected ? 'TARGET_DETECTED' : 'MONITORING',
-                        signalId: this.analyzerSignal.signalId,
-                        symbol: tick.symbol || this.tradeOptions?.symbol || this.symbol,
-                        contractType: 'DIGITMATCH',
-                        prediction: targetDigit,
-                        targetDigit,
-                        contractId: this.contractId,
-                        currentQuote: Number(tick.quote),
-                        currentDigit,
-                        epoch: Number(tick.epoch),
-                        tickEpoch: Number(tick.epoch),
-                        entryEpoch: this.analyzerEntryEpoch || null,
-                        analyzerLockedEntryQuote: this.analyzerEntryQuote,
-                        isSellAvailable: this.isSellAvailable,
-                        bidPrice: Number(this.data?.contract?.bid_price),
-                        buyPrice: Number(this.data?.contract?.buy_price),
-                        profit: Number(this.data?.contract?.profit),
-                    });
-                }
-
-                this.store.dispatch({ type: constants.NEW_TICK, payload: Number(tick.epoch) });
-            };
-
-            // Subscribe once and replay the Analyzer's current snapshot so the
-            // DBot immediately mirrors the currently selected market/feed.
-            this.analyzerFeedUnsubscribe = analyzerSignalService.subscribe(handleAnalyzerEvent);
-            const snapshot = analyzerSignalService.getSnapshot();
-
-            if (snapshot.selectedMarket) {
-                this.symbol = snapshot.selectedMarket;
-                if (this.tradeOptions && !this.analyzerSignal) {
-                    this.tradeOptions.symbol = snapshot.selectedMarket;
-                }
+                const key = await ticksService.monitor({ symbol, callback });
+                tickListenerKey = key;
             }
-
-            if (snapshot.feed) {
-                handleAnalyzerEvent({ type: 'TICK', tick: snapshot.feed });
-            }
-
-            globalObserver.emit(
-                'ui.log.info',
-                'TRAPKID ANALYZER: live market/tick feed is sourced exclusively from the Analyzer.'
-            );
         }
 
         checkTicksPromiseExists() {
@@ -119,22 +41,46 @@ export default Engine =>
         }
 
         getTicks(toString = false) {
-            const history = analyzerSignalService.getSnapshot().feedHistory || [];
-            const values = history.map(tick => {
-                const value = Number(tick.quote);
-                return toString ? String(value) : value;
+            return new Promise(resolve => {
+                this.$scope.ticksService.request({ symbol: this.symbol }).then(ticks => {
+                    const ticks_list = ticks.map(tick => {
+                        if (toString) {
+                            return tick.quote.toFixed(this.getPipSize());
+                        }
+                        return tick.quote;
+                    });
+
+                    resolve(ticks_list);
+                });
             });
-            return Promise.resolve(values);
         }
 
         getLastTick(raw, toString = false) {
-            const feed = analyzerSignalService.getSnapshot().feed;
-            if (!feed) return Promise.reject(new Error('Analyzer live feed is not connected.'));
-
-            if (raw) return Promise.resolve({ ...feed });
-
-            const value = Number(feed.quote);
-            return Promise.resolve(toString ? String(value) : value);
+            return new Promise((resolve, reject) =>
+                this.$scope.ticksService
+                    .request({ symbol: this.symbol })
+                    .then(ticks => {
+                        try {
+                            let last_tick = raw ? getLast(ticks) : getLast(ticks).quote;
+                            if (!raw && toString) {
+                                last_tick = last_tick.toFixed(this.getPipSize());
+                            }
+                            resolve(last_tick);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    })
+                    .catch(e => {
+                        if (e.code === 'MarketIsClosed') {
+                            const localizedError = {
+                                ...e,
+                                message: getLocalizedErrorMessage(e.code, e.details),
+                            };
+                            globalObserver.emit('Error', localizedError);
+                            resolve(e.code);
+                        }
+                    })
+            );
         }
 
         getLastDigit() {
@@ -162,11 +108,11 @@ export default Engine =>
         getOhlc(args) {
             const { granularity = this.options.candleInterval || 60, field } = args || {};
 
-            return new Promise(resolve => {
+            return new Promise(resolve =>
                 this.$scope.ticksService
                     .request({ symbol: this.symbol, granularity })
-                    .then(ohlc => resolve(field ? ohlc.map(o => o[field]) : ohlc));
-            });
+                    .then(ohlc => resolve(field ? ohlc.map(o => o[field]) : ohlc))
+            );
         }
 
         getOhlcFromEnd(args) {
@@ -178,9 +124,7 @@ export default Engine =>
         }
 
         getPipSize() {
-            const feed = analyzerSignalService.getSnapshot().feed;
-            if (Number.isInteger(Number(feed?.pipSize))) return Number(feed.pipSize);
-            return this.$scope?.ticksService?.pipSizes?.[this.symbol] ?? 2;
+            return this.$scope.ticksService.pipSizes[this.symbol];
         }
 
         async requestAccumulatorStats() {
@@ -212,6 +156,7 @@ export default Engine =>
                     if (data.msg_type === 'proposal') {
                         try {
                             this.subscription_id_for_accumulators = data.subscription.id;
+                            // this was done because we can multile arrays in the respone and the list comes in reverse order
                             const stat_list = (data.proposal.contract_details.ticks_stayed_in || []).flat().reverse();
                             ticks_stayed_in_list = [...stat_list, ...ticks_stayed_in_list];
                             if (ticks_stayed_in_list.length > 0) resolve(ticks_stayed_in_list);
@@ -226,14 +171,17 @@ export default Engine =>
 
         async fetchStatsForAccumulators() {
             try {
+                // request stats for accumulators
                 const debouncedAccumulatorsRequest = debounce(() => this.requestAccumulatorStats(), 300);
                 debouncedAccumulatorsRequest();
+                // wait for proposal response
                 const ticks_stayed_in_list = await this.handleOnMessageForAccumulators();
                 return ticks_stayed_in_list;
             } catch (error) {
                 globalObserver.emit('Error in subscription promise:', error);
                 throw error;
             } finally {
+                // forget all proposal subscriptions so we can fetch new stats data on new call
                 await api_base?.api?.send({ forget_all: 'proposal' });
                 this.is_proposal_requested_for_accumulators = false;
                 this.subscription_id_for_accumulators = null;
@@ -252,6 +200,7 @@ export default Engine =>
         async getStatList() {
             try {
                 const ticks_stayed_in = await this.fetchStatsForAccumulators();
+                // we need to send only lastest 100 ticks
                 return ticks_stayed_in?.slice(0, 100);
             } catch (error) {
                 globalObserver.emit('Error fetching current stat:', error);
