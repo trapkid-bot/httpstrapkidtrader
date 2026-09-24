@@ -10,6 +10,7 @@ declare global {
 }
 
 const DEFAULT_URL = 'wss://shipping-cos-zum-horse.trycloudflare.com/ws/ticks';
+const STORAGE_KEY = 'trapkid_analyzer_bridge_v2';
 
 const getUrl = () => {
     if (typeof window !== 'undefined' && window.__TRAPKID_ANALYZER_WS_URL__) {
@@ -32,9 +33,49 @@ class AnalyzerSignalService {
     manuallyStopped = false;
     connected = false;
     executionQueue = [];
+    restored = false;
 
     constructor() {
-        if (typeof window !== 'undefined') this.connect();
+        if (typeof window !== 'undefined') {
+            this.restore();
+            this.connect();
+        }
+    }
+
+    restore() {
+        if (this.restored || typeof window === 'undefined') return;
+        this.restored = true;
+        try {
+            const raw = window.localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const saved = JSON.parse(raw);
+            if (saved.selectedMarket) this.selectedMarket = saved.selectedMarket;
+            if (Array.isArray(saved.markets)) this.markets = saved.markets;
+            if (saved.latestSignal) this.latestSignal = this.normalizeSignal(saved.latestSignal);
+            if (saved.activeSignal) this.activeSignal = this.normalizeSignal(saved.activeSignal);
+            if (saved.latestFeed) this.latestFeed = saved.latestFeed;
+            if (Array.isArray(saved.feedHistory)) this.feedHistory = saved.feedHistory.slice(-1000);
+            if (saved.analyzerStatus) this.analyzerStatus = saved.analyzerStatus;
+        } catch {
+            // Ignore stale/corrupt browser state.
+        }
+    }
+
+    persist() {
+        if (typeof window === 'undefined') return;
+        try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                selectedMarket: this.selectedMarket,
+                markets: this.markets,
+                latestSignal: this.latestSignal,
+                activeSignal: this.activeSignal,
+                latestFeed: this.latestFeed,
+                feedHistory: this.feedHistory.slice(-1000),
+                analyzerStatus: this.analyzerStatus,
+            }));
+        } catch {
+            // Storage failure must never break the bridge.
+        }
     }
 
     setConnected(connected) {
@@ -91,12 +132,14 @@ class AnalyzerSignalService {
         if (message.type === 'MARKET_SELECTED' || message.type === 'MARKET_CHANGED' || message.type === 'SELECTED_MARKET') {
             const selected = message.market || message.symbol || message.selectedMarket || message.data?.market || message.data?.symbol;
             if (selected) this.selectedMarket = typeof selected === 'string' ? selected : (selected.symbol || selected.code || null);
+            this.persist();
             this.emit({ type: 'MARKET_SELECTED', market: this.selectedMarket, data: message });
             return;
         }
 
         if (message.type === 'MARKETS') {
             this.markets = Array.isArray(message.markets) ? message.markets : (Array.isArray(message.data) ? message.data : []);
+            this.persist();
             this.emit({ type: 'MARKETS', markets: this.markets });
             return;
         }
@@ -105,6 +148,7 @@ class AnalyzerSignalService {
             const signal = message.signal || message.data || message;
             if (!signal || signal.lockedDigit === undefined) return;
             this.latestSignal = this.normalizeSignal(signal);
+            this.persist();
             this.emit({ type: message.type, signal: this.latestSignal });
             return;
         }
@@ -120,6 +164,7 @@ class AnalyzerSignalService {
             };
             this.selectedMarket = this.latestFeed.symbol || this.selectedMarket;
             this.feedHistory = [...this.feedHistory.slice(-999), this.latestFeed];
+            this.persist();
             this.emit({ type: 'TICK', tick: this.latestFeed });
             return;
         }
@@ -143,12 +188,14 @@ class AnalyzerSignalService {
             }
             const lock = status?.lock || status?.signal || status?.data?.lock;
             if (lock && lock.lockedDigit !== undefined) this.latestSignal = this.normalizeSignal(lock);
+            this.persist();
             this.emit({ type: 'STATUS', connected: this.connected, status });
             return;
         }
 
         if (message.type === 'SIGNAL_UNLOCKED') {
             if (!message.signalId || message.signalId === this.latestSignal?.signalId) this.latestSignal = null;
+            this.persist();
             this.emit({ type: 'SIGNAL_UNLOCKED', signalId: message.signalId });
         }
 
@@ -186,12 +233,13 @@ class AnalyzerSignalService {
         const signal = this.getValidSignal();
         if (!signal) return null;
         this.activeSignal = { ...signal };
+        this.persist();
         this.emit({ type: 'RUN_RELEASED', signal: this.activeSignal });
         return { ...this.activeSignal };
     }
 
     getActiveSignal() { return this.activeSignal ? { ...this.activeSignal } : null; }
-    clearActiveSignal() { this.activeSignal = null; }
+    clearActiveSignal() { this.activeSignal = null; this.persist(); }
 
     publishExecution(execution) {
         const message = { type: 'DBOT_EXECUTION', execution: { ...execution, timestamp: Date.now() } };
@@ -202,6 +250,7 @@ class AnalyzerSignalService {
             this.executionQueue.push(message);
             if (!this.ws || this.ws.readyState === WebSocket.CLOSED) this.connect();
         }
+        this.persist();
         this.emit(message);
     }
 
@@ -236,6 +285,7 @@ class AnalyzerSignalService {
         this.ws?.close();
         this.ws = null;
         this.activeSignal = null;
+        this.persist();
         this.setConnected(false);
     }
 }
