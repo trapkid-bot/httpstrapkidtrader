@@ -5,40 +5,18 @@ import { BOT_VERSION_CONFIG } from '@/constants/bot-version';
 import { LANGUAGE_STORAGE_KEY } from '../app/seed-translations';
 
 /**
- * Clears all localStorage data except for the bot_version and the language.
+ * Storage migration hook.
  *
- * The language has to survive for the same reason the version does: this runs on
- * every first visit (no `bot_version` yet), and `app/i18n.ts` has *already* seeded
- * the deploy's configured language by then. `main.tsx` calls this before its own
- * body does anything else, but ES imports are evaluated before the importing
- * module's body — and `main.tsx` imports `AuthWrapper` -> `App` -> `./i18n` on its
- * first line — so the seed is unavoidably earlier. Clearing it left i18next holding
- * the right language in memory (the UI was French) while storage was empty, so
- * every later reader of `getInitialLanguage()` — the OAuth `lang`, the redirect and
- * transfer URLs, static links — fell back to EN. That is why a first login landed
- * on an English screen and only the second was French (#804).
+ * The original implementation cleared the entire browser storage whenever the
+ * bot version was missing or changed. That destroys the user's normal DBot
+ * configuration, Analyzer bridge state, selected market, locked signal, and
+ * account/session data. TrapKid is a persistent web app, so a version check must
+ * never wipe application state implicitly.
  */
 const clearLocalStorage = (): void => {
-    try {
-        // Get the current bot_version before clearing
-        const currentBotVersion = localStorage.getItem(BOT_VERSION_CONFIG.STORAGE_KEY);
-        const currentLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-
-        // Clear all localStorage
-        localStorage.clear();
-
-        // Restore the bot_version if it existed
-        if (currentBotVersion) {
-            localStorage.setItem(BOT_VERSION_CONFIG.STORAGE_KEY, currentBotVersion);
-        }
-
-        // Restore the language the app is already rendering in.
-        if (currentLanguage) {
-            localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
-        }
-    } catch (error) {
-        console.error('Error clearing localStorage:', error);
-    }
+    // Intentionally do not clear storage. Keep this function as a compatibility
+    // hook for callers that expect a migration step.
+    return;
 };
 
 /**
@@ -116,14 +94,14 @@ export const performVersionCheck = (): void => {
     if (!isVersionValid()) {
         console.log('Bot version mismatch or not set. Clearing localStorage and cookies...');
 
-        // Clear all storage
+        // Do not wipe user/application state during a normal version migration.
+        // In particular, preserve Analyzer bridge state, bot settings and login.
         clearLocalStorage();
-        clearCookies();
 
-        // Set the correct version to prevent infinite clearing
+        // Keep the current session/configuration and just advance the stored version.
         setBotVersion();
 
-        console.log('Storage cleared and bot version set to:', BOT_VERSION_CONFIG.REQUIRED_VERSION);
+        console.log('Bot version migrated without clearing user configuration:', BOT_VERSION_CONFIG.REQUIRED_VERSION);
     } else {
         console.log('Bot version is valid:', BOT_VERSION_CONFIG.REQUIRED_VERSION);
     }
